@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import re
+import os
+import signal
 import subprocess
+import time
 
 from .config import AppConfig, Paths
 from .state import atomic_write_json, read_json
@@ -66,6 +69,61 @@ def _clear_stale_recording_state(paths: Paths) -> None:
     state_path = _active_recording_path(paths)
     if state_path.exists():
         state_path.unlink()
+
+
+def _wait_pid_exit(pid: int, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return True
+        time.sleep(0.1)
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return True
+    return False
+
+
+def repair_wav(session: Path) -> bool:
+    audio = session / "audio.wav"
+    interrupted = session / "audio.interrupted.wav"
+    if not audio.exists():
+        return False
+    audio.replace(interrupted)
+    result = subprocess.run(["ffmpeg", "-y", "-i", str(interrupted), "-c", "copy", str(audio)], check=False)
+    return result.returncode == 0
+
+
+def stop_recording(paths: Paths) -> Path:
+    state_path = _active_recording_path(paths)
+    if not state_path.exists():
+        raise RuntimeError("No active recording")
+    recording = read_json(state_path)
+    pid = int(recording.get("pid", 0))
+    session = Path(str(recording.get("session_path", "")))
+    if not pid or not is_live_ffmpeg(pid):
+        raise RuntimeError("stale recording state")
+
+    interrupted = False
+    os.kill(pid, signal.SIGINT)
+    if not _wait_pid_exit(pid, 10):
+        os.kill(pid, signal.SIGTERM)
+        if not _wait_pid_exit(pid, 3):
+            os.kill(pid, signal.SIGKILL)
+            interrupted = True
+
+    if interrupted:
+        repaired = repair_wav(session)
+        atomic_write_json(session / "session.json", {**recording, "recording_interrupted": True, "wav_repair_succeeded": repaired})
+
+    state_path.unlink(missing_ok=True)
+    from .queue import enqueue_session, try_spawn_worker
+
+    enqueue_session(paths, session)
+    try_spawn_worker(paths)
+    return session
 
 
 def start_recording(config: AppConfig, paths: Paths) -> Path:

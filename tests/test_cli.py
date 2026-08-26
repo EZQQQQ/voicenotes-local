@@ -33,3 +33,30 @@ def test_unknown_command_returns_internal_error(capsys):
 
     assert code == 2
     assert "usage:" in capsys.readouterr().err
+
+
+def test_stop_command_prints_stopped_session(monkeypatch, capsys):
+    monkeypatch.setattr("voicenotes.cli.stop_recording", lambda paths: paths.output_root / "2026-08-27_143012")
+
+    assert main(["stop"]) == 0
+    assert capsys.readouterr().out.strip().endswith("2026-08-27_143012")
+
+
+def test_toggle_stops_when_recording_state_exists(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    run = tmp_path / ".voicenotes" / "run"
+    run.mkdir(parents=True)
+    (run / "current-recording.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("voicenotes.cli.stop_recording", lambda paths: paths.output_root / "2026-08-27_143012")
+
+    assert main(["toggle"]) == 0
+    assert capsys.readouterr().out.strip().endswith("2026-08-27_143012")
+
+
+def test_toggle_starts_when_recording_state_is_absent(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("voicenotes.cli.start_recording", lambda config, paths: paths.output_root / "2026-08-27_143012")
+    monkeypatch.setattr("voicenotes.cli.load_config", lambda: object())
+
+    assert main(["toggle"]) == 0
+    assert capsys.readouterr().out.strip().endswith("2026-08-27_143012")
