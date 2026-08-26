@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
+import sys
 
 from .config import config_as_dict, default_paths, load_config
+from .pipeline import process_session, retry_session
 from .recorder import list_audio_devices, record_test, start_recording, stop_recording
 from .state import status_snapshot
 
@@ -19,6 +22,10 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("start")
     subparsers.add_parser("stop")
     subparsers.add_parser("toggle")
+    process_parser = subparsers.add_parser("process")
+    process_parser.add_argument("session")
+    retry_parser = subparsers.add_parser("retry")
+    retry_parser.add_argument("session")
     record_test_parser = subparsers.add_parser("record-test")
     record_test_parser.add_argument("--duration", type=int, default=10)
 
@@ -51,6 +58,22 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "record-test":
         print(record_test(load_config(), default_paths(), args.duration))
+        return 0
+    if args.command in {"process", "retry"}:
+        session = Path(args.session).expanduser()
+        paths = default_paths()
+        try:
+            if args.command == "process":
+                process_session(session, load_config(), paths)
+            else:
+                retry_session(session, load_config(), paths)
+        except RuntimeError as error:
+            print(error, file=sys.stderr)
+            return 1
+        except Exception as error:
+            print(error, file=sys.stderr)
+            return 2
+        print(session)
         return 0
 
     parser.print_usage()

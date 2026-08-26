@@ -60,3 +60,25 @@ def test_toggle_starts_when_recording_state_is_absent(tmp_path, monkeypatch, cap
 
     assert main(["toggle"]) == 0
     assert capsys.readouterr().out.strip().endswith("2026-08-27_143012")
+
+
+def test_process_command_runs_pipeline_for_session(tmp_path, monkeypatch, capsys):
+    session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
+    processed = []
+    monkeypatch.setattr("voicenotes.cli.load_config", lambda: object())
+    monkeypatch.setattr("voicenotes.cli.default_paths", lambda: object())
+    monkeypatch.setattr("voicenotes.cli.process_session", lambda path, config, paths: processed.append((path, config, paths)))
+
+    assert main(["process", str(session)]) == 0
+    assert processed[0][0] == session
+    assert capsys.readouterr().out.strip() == str(session)
+
+
+def test_retry_command_returns_one_for_pipeline_failure(tmp_path, monkeypatch, capsys):
+    session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
+    monkeypatch.setattr("voicenotes.cli.load_config", lambda: object())
+    monkeypatch.setattr("voicenotes.cli.default_paths", lambda: object())
+    monkeypatch.setattr("voicenotes.cli.retry_session", lambda path, config, paths: (_ for _ in ()).throw(RuntimeError("pipeline failed")))
+
+    assert main(["retry", str(session)]) == 1
+    assert "pipeline failed" in capsys.readouterr().err
