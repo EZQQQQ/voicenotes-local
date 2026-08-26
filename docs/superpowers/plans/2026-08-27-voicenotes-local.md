@@ -307,7 +307,7 @@ def test_unknown_command_returns_internal_error(capsys):
 Run:
 
 ```bash
-python3 -m pytest tests/test_config.py tests/test_state.py tests/test_cli.py -v
+python3.11 -m pytest tests/test_config.py tests/test_state.py tests/test_cli.py -v
 ```
 
 Expected: FAIL because the `voicenotes` package and functions do not exist.
@@ -517,7 +517,7 @@ raise SystemExit(main())
 Run:
 
 ```bash
-python3 -m pytest tests/test_config.py tests/test_state.py tests/test_cli.py -v
+python3.11 -m pytest tests/test_config.py tests/test_state.py tests/test_cli.py -v
 ```
 
 Expected: PASS.
@@ -664,7 +664,7 @@ def test_record_test_uses_shared_device_resolution_without_state_file(tmp_path, 
 Run:
 
 ```bash
-python3 -m pytest tests/test_recorder_start.py -v
+python3.11 -m pytest tests/test_recorder_start.py -v
 ```
 
 Expected: FAIL because `voicenotes.recorder` and CLI commands do not exist.
@@ -800,7 +800,7 @@ Modify `voicenotes/cli.py` to add `devices`, `start`, and `record-test`. `device
 Run:
 
 ```bash
-python3 -m pytest tests/test_recorder_start.py tests/test_cli.py -v
+python3.11 -m pytest tests/test_recorder_start.py tests/test_cli.py -v
 ```
 
 Expected: PASS.
@@ -963,7 +963,7 @@ def test_try_spawn_worker_noops_when_lock_held(tmp_path, monkeypatch):
 Run:
 
 ```bash
-python3 -m pytest tests/test_recorder_stop.py tests/test_queue.py -v
+python3.11 -m pytest tests/test_recorder_stop.py tests/test_queue.py -v
 ```
 
 Expected: FAIL because stop and queue functions do not exist.
@@ -1058,7 +1058,7 @@ Modify `voicenotes/cli.py`:
 Run:
 
 ```bash
-python3 -m pytest tests/test_recorder_stop.py tests/test_queue.py tests/test_recorder_start.py tests/test_cli.py -v
+python3.11 -m pytest tests/test_recorder_stop.py tests/test_queue.py tests/test_recorder_start.py tests/test_cli.py -v
 ```
 
 Expected: PASS.
@@ -1290,7 +1290,7 @@ def test_retry_skips_valid_existing_artifacts(tmp_path, monkeypatch):
 Run:
 
 ```bash
-python3 -m pytest tests/test_ollama.py tests/test_pipeline.py -v
+python3.11 -m pytest tests/test_ollama.py tests/test_pipeline.py -v
 ```
 
 Expected: FAIL because `ollama.py` and `pipeline.py` do not exist.
@@ -1380,7 +1380,7 @@ load config and paths, call `process_session` or `retry_session`, print the sess
 Run:
 
 ```bash
-python3 -m pytest tests/test_ollama.py tests/test_pipeline.py tests/test_state.py tests/test_cli.py -v
+python3.11 -m pytest tests/test_ollama.py tests/test_pipeline.py tests/test_state.py tests/test_cli.py -v
 ```
 
 Expected: PASS.
@@ -1490,7 +1490,7 @@ def test_play_start_sound_uses_afplay(monkeypatch):
 Run:
 
 ```bash
-python3 -m pytest tests/test_worker.py -v
+python3.11 -m pytest tests/test_worker.py -v
 ```
 
 Expected: FAIL because worker draining and notification helpers do not exist.
@@ -1536,7 +1536,7 @@ Modify `voicenotes/cli.py`:
 Run:
 
 ```bash
-python3 -m pytest tests -v
+python3.11 -m pytest tests -v
 ```
 
 Expected: PASS.
@@ -1641,7 +1641,7 @@ def test_doctor_reports_tcc_hint_when_record_test_fails(tmp_path, monkeypatch, c
 Run:
 
 ```bash
-python3 -m pytest tests/test_doctor.py -v
+python3.11 -m pytest tests/test_doctor.py -v
 ```
 
 Expected: FAIL because doctor and download helper do not exist.
@@ -1690,7 +1690,7 @@ Modify `voicenotes/cli.py`:
 Run:
 
 ```bash
-python3 -m pytest tests -v
+python3.11 -m pytest tests -v
 ```
 
 Expected: PASS.
@@ -1748,7 +1748,7 @@ def test_hammerspoon_config_has_no_recording_or_ffmpeg_logic():
 Run:
 
 ```bash
-python3 -m pytest tests/test_hammerspoon.py -v
+python3.11 -m pytest tests/test_hammerspoon.py -v
 ```
 
 Expected: FAIL because `hammerspoon/voicenotes.lua` does not exist.
@@ -1831,7 +1831,7 @@ return M
 Run:
 
 ```bash
-python3 -m pytest tests -v
+python3.11 -m pytest tests -v
 ```
 
 Expected: PASS.
@@ -1900,7 +1900,7 @@ def test_uninstall_script_leaves_user_data_and_shared_deps():
 Run:
 
 ```bash
-python3 -m pytest tests/test_install_scripts.py -v
+python3.11 -m pytest tests/test_install_scripts.py -v
 ```
 
 Expected: FAIL because `install.sh` and `uninstall.sh` do not exist.
@@ -2027,7 +2027,7 @@ echo "To remove the default Ollama model and reclaim roughly 9GB, run: ollama rm
 Run:
 
 ```bash
-python3 -m pytest tests/test_install_scripts.py -v
+python3.11 -m pytest tests/test_install_scripts.py -v
 bash -n install.sh
 bash -n uninstall.sh
 ```
@@ -2110,7 +2110,7 @@ def test_smoke_test_uses_record_test_and_validates_summary_headings():
 Run:
 
 ```bash
-python3 -m pytest tests/test_docs.py -v
+python3.11 -m pytest tests/test_docs.py -v
 ```
 
 Expected: FAIL because README, LICENSE, and smoke test do not exist.
@@ -2208,7 +2208,7 @@ VoiceNotes/
 Run:
 
 ```bash
-python3 -m pytest tests -v
+python3.11 -m pytest tests -v
 bash -n install.sh
 bash -n uninstall.sh
 bash -n scripts/smoke-test.sh
@@ -2230,7 +2230,7 @@ git commit -m "Add user documentation and smoke test"
 After all tasks are complete, run:
 
 ```bash
-python3 -m pytest tests -v
+python3.11 -m pytest tests -v
 bash -n install.sh
 bash -n uninstall.sh
 bash -n scripts/smoke-test.sh
