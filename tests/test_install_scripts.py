@@ -10,13 +10,21 @@ def test_install_script_has_required_idempotent_behaviors():
     assert "$HOME/.voicenotes/app" in script
     assert "$HOME/.voicenotes/venv" in script
     assert "$CONFIG_DIR/run" in script
-    assert "python3.11 -m venv" in script
-    assert "pip install -r requirements.txt" in script
+    assert '"$BREW_PREFIX/bin/python3.11" -m venv "$VENV_DIR"' in script
+    assert '"$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"' in script
     assert "ollama pull" in script
     assert "download-whisper-model" in script
     assert 'require("voicenotes")' in script
     assert "hammerspoon://reload" in script
     assert "NONINTERACTIVE" in script
+
+
+def test_install_script_uses_explicit_homebrew_binary_after_bootstrap():
+    script = Path("install.sh").read_text(encoding="utf-8")
+
+    assert 'BREW="$BREW_PREFIX/bin/brew"' in script
+    assert '"$BREW" install git ffmpeg python@3.11' in script
+    assert '"$BREW" install --cask hammerspoon ollama' in script
 
 
 def test_uninstall_script_leaves_user_data_and_shared_deps():

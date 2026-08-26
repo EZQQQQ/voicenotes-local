@@ -7,6 +7,7 @@ CONFIG_DIR="$HOME/.voicenotes"
 CONFIG_FILE="$CONFIG_DIR/config.toml"
 REPO_URL="${VOICENOTES_REPO_URL:-https://github.com/YOUR_GITHUB_USERNAME/voicenotes-local.git}"
 BREW_PREFIX="/opt/homebrew"
+BREW="$BREW_PREFIX/bin/brew"
 WRAPPER_DIR="$BREW_PREFIX/bin"
 WRAPPER="$WRAPPER_DIR/voicenotes"
 
@@ -19,8 +20,8 @@ if ! command -v brew >/dev/null 2>&1; then
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
-brew install git ffmpeg python@3.11
-brew install --cask hammerspoon ollama
+"$BREW" install git ffmpeg python@3.11
+"$BREW" install --cask hammerspoon ollama
 
 mkdir -p "$CONFIG_DIR" "$CONFIG_DIR/run" "$CONFIG_DIR/models"
 if [[ "$REPO_URL" == /* ]]; then
@@ -33,10 +34,8 @@ else
   git clone "$REPO_URL" "$APP_DIR"
 fi
 
-# python3.11 -m venv
 "$BREW_PREFIX/bin/python3.11" -m venv "$VENV_DIR"
 "$VENV_DIR/bin/pip" install --upgrade pip
-# pip install -r requirements.txt
 "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
 
 if [[ ! -f "$CONFIG_FILE" ]]; then
