@@ -89,6 +89,7 @@ def start_recording(config: AppConfig, paths: Paths) -> Path:
         stdout=subprocess.DEVNULL,
         stderr=log_handle,
     )
+    log_handle.close()
     atomic_write_json(
         state_path,
         {
@@ -107,9 +108,10 @@ def record_test(config: AppConfig, paths: Paths, duration_seconds: int = 10) -> 
     device_index = resolve_audio_device(config.audio_device, devices)
     session = config.output_root / f"record-test_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
     session.mkdir(parents=True, exist_ok=False)
-    with (session / "ffmpeg.log").open("ab"):
+    with (session / "ffmpeg.log").open("ab") as log_handle:
         subprocess.run(
             ["ffmpeg", "-y", "-f", "avfoundation", "-i", f":{device_index}", "-t", str(duration_seconds), "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", str(session / "audio.wav")],
+            stderr=log_handle,
             check=True,
         )
     return session

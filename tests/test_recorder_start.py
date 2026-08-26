@@ -89,8 +89,9 @@ def test_record_test_uses_shared_device_resolution_without_state_file(tmp_path, 
     launched = {}
     monkeypatch.setattr("voicenotes.recorder.list_audio_devices", lambda: ["MacBook Pro Microphone"])
 
-    def fake_run(args, check):
+    def fake_run(args, stderr, check):
         launched["args"] = args
+        launched["stderr_name"] = Path(stderr.name).name
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr("subprocess.run", fake_run)
@@ -99,5 +100,6 @@ def test_record_test_uses_shared_device_resolution_without_state_file(tmp_path, 
 
     assert "-t" in launched["args"]
     assert "3" in launched["args"]
+    assert launched["stderr_name"] == "ffmpeg.log"
     assert not (tmp_path / "run" / "current-recording.json").exists()
     assert session.name.startswith("record-test_")
