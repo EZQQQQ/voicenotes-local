@@ -8,10 +8,11 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
-from .config import Paths
-from .state import atomic_write_json
+from .config import AppConfig, Paths
+from .state import atomic_write_json, atomic_write_text, read_json
 
 
 _LOCK_HANDLES: dict[Path, int] = {}
@@ -20,7 +21,7 @@ _LOCK_HANDLES: dict[Path, int] = {}
 def enqueue_session(paths: Paths, session: Path) -> Path:
     queue_dir = paths.run / "queue"
     queue_dir.mkdir(parents=True, exist_ok=True)
-    item = queue_dir / f"{datetime.now().strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex}_{session.name}.json"
+    item = queue_dir / f"{datetime.now().strftime('%Y%m%dT%H%M%S')}_{time.monotonic_ns()}_{uuid.uuid4().hex}_{session.name}.json"
     atomic_write_json(item, {"session_path": str(session), "enqueued_at": datetime.now().isoformat(timespec="seconds")})
     return item
 
@@ -96,6 +97,38 @@ def release_pipeline_lock(paths: Paths) -> None:
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
+
+
+def _worker_log(paths: Paths, message: str) -> None:
+    path = paths.run / "worker.log"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(f"{datetime.now().isoformat(timespec='seconds')} {message}\n")
+
+
+def drain_queue(config: AppConfig, paths: Paths) -> None:
+    if not acquire_pipeline_lock(paths):
+        return
+
+    _worker_log(paths, "worker started")
+    try:
+        queue_dir = paths.run / "queue"
+        for item in sorted(queue_dir.glob("*.json")):
+            try:
+                session = Path(str(read_json(item)["session_path"]))
+                _worker_log(paths, f"processing {item.name}")
+                from . import pipeline
+
+                pipeline.process_session(session, config, paths)
+            except Exception as error:
+                atomic_write_text(session / "error.log", f"{error}\n")
+                _worker_log(paths, f"failed {item.name}: {error}")
+            else:
+                item.unlink(missing_ok=True)
+                _worker_log(paths, f"completed {item.name}")
+    finally:
+        release_pipeline_lock(paths)
+        _worker_log(paths, "worker drained queue")
 
 
 def try_spawn_worker(paths: Paths) -> bool:

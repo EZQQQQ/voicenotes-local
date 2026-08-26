@@ -73,6 +73,7 @@ def test_start_recording_writes_state_and_ffmpeg_log(tmp_path, monkeypatch):
             launched["stderr_name"] = Path(stderr.name).name
 
     monkeypatch.setattr("subprocess.Popen", FakePopen)
+    monkeypatch.setattr("voicenotes.recorder.play_start_sound", lambda: None)
 
     session = start_recording(config(tmp_path), paths(tmp_path))
 

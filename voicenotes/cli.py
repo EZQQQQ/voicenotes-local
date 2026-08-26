@@ -7,6 +7,7 @@ import sys
 
 from .config import config_as_dict, default_paths, load_config
 from .pipeline import process_session, retry_session
+from .queue import drain_queue
 from .recorder import list_audio_devices, record_test, start_recording, stop_recording
 from .state import status_snapshot
 
@@ -22,6 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("start")
     subparsers.add_parser("stop")
     subparsers.add_parser("toggle")
+    subparsers.add_parser("worker", help=argparse.SUPPRESS)
     process_parser = subparsers.add_parser("process")
     process_parser.add_argument("session")
     retry_parser = subparsers.add_parser("retry")
@@ -55,6 +57,10 @@ def main(argv: list[str] | None = None) -> int:
             print(stop_recording(paths))
         else:
             print(start_recording(load_config(), paths))
+        return 0
+    if args.command == "worker":
+        paths = default_paths()
+        drain_queue(load_config(), paths)
         return 0
     if args.command == "record-test":
         print(record_test(load_config(), default_paths(), args.duration))

@@ -198,6 +198,7 @@ def test_process_session_opens_valid_existing_summary_when_enabled(tmp_path, mon
     )
     opened = []
     monkeypatch.setattr("subprocess.run", lambda args, check=False: opened.append(args))
+    monkeypatch.setattr("voicenotes.pipeline.notify", lambda title, message: None)
     monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: pytest.fail("should skip model preflight"))
 
     process_session(session, replace(config(tmp_path), auto_open=True), paths(tmp_path))

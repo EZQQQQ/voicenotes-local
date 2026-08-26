@@ -7,7 +7,7 @@ import subprocess
 import voicenotes.ollama as ollama
 
 from .config import AppConfig, Paths
-from .state import atomic_write_json, atomic_write_text, read_json, validate_summary
+from .state import atomic_write_json, atomic_write_text, notify, read_json, validate_summary
 
 
 WHISPER_REPO_ID = "mlx-community/whisper-large-v3-mlx"
@@ -150,6 +150,7 @@ def _write_failure(session: Path, config: AppConfig, error: Exception) -> None:
     atomic_write_text(session / "error.log", message + "\n")
     atomic_write_text(session / "pipeline.log", f"failed: {message}\n")
     _write_session_state(session, "error", config, message)
+    notify("Note processing failed", session.name)
 
 
 def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
@@ -162,6 +163,7 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
             atomic_write_text(session / "pipeline.log", "complete: existing artifacts are valid\n")
             if config.auto_open:
                 subprocess.run(["open", "-g", str(session / "summary.md")], check=False)
+            notify("Note ready", session.name)
             return
 
         _write_session_state(session, "processing", config)
@@ -195,6 +197,7 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
         (session / "error.log").unlink(missing_ok=True)
         if config.auto_open:
             subprocess.run(["open", "-g", str(summary_path)], check=False)
+        notify("Note ready", session.name)
     except Exception as error:
         _write_failure(session, config, error)
         raise

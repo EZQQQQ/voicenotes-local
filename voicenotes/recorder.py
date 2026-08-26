@@ -9,7 +9,7 @@ import subprocess
 import time
 
 from .config import AppConfig, Paths
-from .state import atomic_write_json, read_json
+from .state import atomic_write_json, notify, play_start_sound, read_json
 
 
 DEVICE_RE = re.compile(r"\[(\d+)\]\s+(.+)$")
@@ -126,6 +126,7 @@ def stop_recording(paths: Paths) -> Path:
 
     enqueue_session(paths, session)
     try_spawn_worker(paths)
+    notify("Recording stopped", "Session queued for processing")
     return session
 
 
@@ -161,6 +162,7 @@ def start_recording(config: AppConfig, paths: Paths) -> Path:
             "ffmpeg_log_path": str(ffmpeg_log),
         },
     )
+    play_start_sound()
     return session
 
 

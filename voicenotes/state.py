@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import os
 import re
+import subprocess
 import tempfile
 
 from .config import Paths
@@ -39,6 +40,15 @@ def atomic_write_json(path: Path, payload: dict[str, object]) -> None:
 
 def read_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def notify(title: str, message: str) -> None:
+    script = f"display notification {json.dumps(message)} with title {json.dumps(title)}"
+    subprocess.run(["osascript", "-e", script], check=False)
+
+
+def play_start_sound() -> None:
+    subprocess.run(["afplay", "/System/Library/Sounds/Pop.aiff"], check=False)
 
 
 def required_summary_headings() -> list[str]:
