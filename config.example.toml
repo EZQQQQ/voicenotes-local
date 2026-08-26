@@ -1,0 +1,8 @@
+output_root = "~/VoiceNotes"
+audio_device = "default"
+ollama_model = "qwen2.5:14b"
+auto_open = true
+
+[hotkey]
+mods = ["cmd"]
+key = "`"

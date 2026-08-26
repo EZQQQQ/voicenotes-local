@@ -1,0 +1,1 @@
+"""Local VoiceNotes application package."""

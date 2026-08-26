@@ -1,0 +1,3 @@
+huggingface_hub[hf_xet]==1.8.0
+mlx-whisper==0.4.3
+pytest==8.4.2
