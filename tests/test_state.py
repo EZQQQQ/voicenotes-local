@@ -85,6 +85,28 @@ def test_validate_summary_rejects_extra_top_level_section(tmp_path):
     assert "unexpected heading" in reason
 
 
+def test_validate_summary_rejects_additional_markdown_heading(tmp_path):
+    path = tmp_path / "summary.md"
+    path.write_text(
+        "\n".join(
+            [
+                "## Meeting Metadata",
+                "### Unapproved Details",
+                "## Key Discussion Points",
+                "## Decisions Made",
+                "## Action Items",
+                "## Open Questions",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    valid, reason = validate_summary(path)
+
+    assert valid is False
+    assert "unexpected heading" in reason
+
+
 def test_status_snapshot_reports_recording_processing_queue_and_error(tmp_path):
     run = tmp_path / ".voicenotes" / "run"
     queue = run / "queue"

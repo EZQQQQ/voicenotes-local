@@ -55,3 +55,21 @@ Additional checks:
 ## Concerns
 
 None identified for Task 1. The initial missing pytest installation was an environment prerequisite and was resolved with the pinned test dependency.
+
+## Fix Round 1
+
+Addressed the review finding in `voicenotes/state.py`: summary validation now detects valid ATX Markdown headings from levels 1 through 6, rather than only level-two headings. The required heading sequence must therefore contain exactly the five approved `##` headings; an additional `#` or `###` heading is rejected as an unexpected heading. The provenance-comment exception remains limited to content before the first detected heading.
+
+Added `test_validate_summary_rejects_additional_markdown_heading` to cover an otherwise-valid summary containing `### Unapproved Details`.
+
+TDD verification:
+
+1. The new regression test failed before the implementation change because the validator returned `(True, "ok")`.
+2. After the change, `python3.11 -m pytest tests/test_state.py -v` passed 6 tests.
+3. The focused Task 1 suite passed 11 tests:
+
+```text
+python3.11 -m pytest tests/test_config.py tests/test_state.py tests/test_cli.py -v
+```
+
+Pytest emitted one non-blocking temporary-directory cleanup warning during the isolated state-suite run; the command exited successfully. The focused suite completed without warnings.
