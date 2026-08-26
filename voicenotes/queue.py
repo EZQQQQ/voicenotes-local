@@ -116,16 +116,13 @@ def drain_queue(config: AppConfig, paths: Paths) -> None:
         for item in sorted(queue_dir.glob("*.json")):
             try:
                 session = Path(str(read_json(item)["session_path"]))
-                _worker_log(paths, f"processing {item.name}")
                 from . import pipeline
 
                 pipeline.process_session(session, config, paths)
             except Exception as error:
                 atomic_write_text(session / "error.log", f"{error}\n")
-                _worker_log(paths, f"failed {item.name}: {error}")
             else:
                 item.unlink(missing_ok=True)
-                _worker_log(paths, f"completed {item.name}")
     finally:
         release_pipeline_lock(paths)
         _worker_log(paths, "worker drained queue")

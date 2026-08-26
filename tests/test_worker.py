@@ -35,7 +35,7 @@ def test_drain_queue_releases_lock_after_failure(tmp_path, monkeypatch):
     p = paths(tmp_path)
     session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
     session.mkdir(parents=True)
-    enqueue_session(p, session)
+    item = enqueue_session(p, session)
 
     def fail(*args):
         raise RuntimeError("pipeline failed")
@@ -46,6 +46,20 @@ def test_drain_queue_releases_lock_after_failure(tmp_path, monkeypatch):
 
     assert not (p.run / "pipeline.lock").exists()
     assert (session / "error.log").exists()
+    assert item.exists()
+
+
+def test_drain_queue_worker_log_contains_only_lifecycle_entries(tmp_path, monkeypatch):
+    p = paths(tmp_path)
+    session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
+    session.mkdir(parents=True)
+    enqueue_session(p, session)
+    monkeypatch.setattr("voicenotes.pipeline.process_session", lambda session, cfg, paths: None)
+
+    drain_queue(config(tmp_path), p)
+
+    messages = [line.partition(" ")[2] for line in (p.run / "worker.log").read_text(encoding="utf-8").splitlines()]
+    assert messages == ["worker started", "worker drained queue"]
 
 
 def test_notify_uses_osascript(monkeypatch):
