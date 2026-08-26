@@ -122,6 +122,43 @@ def test_retry_skips_valid_existing_artifacts(tmp_path, monkeypatch):
     assert (session / "summary.md").exists()
 
 
+def test_retry_regenerates_malformed_utf8_transcript(tmp_path, monkeypatch):
+    session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
+    session.mkdir(parents=True)
+    (session / "audio.wav").write_bytes(b"RIFF" + b"0" * 10000)
+    (session / "transcript_raw.md").write_bytes(b"\xff\xfe")
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    monkeypatch.setattr(
+        "voicenotes.pipeline.transcribe_audio",
+        lambda audio, models: [{"start": 0, "end": 1, "text": "regenerated raw"}],
+    )
+    responses = iter(
+        [
+            "[00:00:00 - 00:00:01] regenerated clean",
+            "\n".join(
+                [
+                    "## Meeting Metadata",
+                    "Date: not specified",
+                    "## Key Discussion Points",
+                    "- point",
+                    "## Decisions Made",
+                    "- none",
+                    "## Action Items",
+                    "- [ ] task — owner: unassigned — deadline: no deadline given",
+                    "## Open Questions",
+                    "- none",
+                ]
+            ),
+        ]
+    )
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: next(responses))
+
+    retry_session(session, config(tmp_path), paths(tmp_path))
+
+    assert (session / "transcript_raw.md").read_text(encoding="utf-8") == "[00:00:00 - 00:00:01] regenerated raw\n"
+    assert artifact_status(session)["summary"] is True
+
+
 def test_process_session_rejects_empty_raw_transcript_before_cleanup(tmp_path, monkeypatch):
     session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
     session.mkdir(parents=True)

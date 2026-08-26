@@ -93,16 +93,26 @@ def write_raw_transcript(session: Path, segments: list[dict[str, object]]) -> No
 
 
 def _valid_text(path: Path) -> bool:
-    return path.exists() and len(path.read_text(encoding="utf-8").strip()) >= TRANSCRIPT_MIN_CHARACTERS
+    try:
+        return path.exists() and len(path.read_text(encoding="utf-8").strip()) >= TRANSCRIPT_MIN_CHARACTERS
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def _valid_summary(path: Path) -> bool:
+    try:
+        valid, _ = validate_summary(path)
+        return valid
+    except (OSError, UnicodeDecodeError):
+        return False
 
 
 def artifact_status(session: Path) -> dict[str, bool]:
-    summary_valid, _ = validate_summary(session / "summary.md")
     return {
         "audio": (session / "audio.wav").is_file() and (session / "audio.wav").stat().st_size >= AUDIO_MIN_BYTES,
         "transcript_raw": _valid_text(session / "transcript_raw.md"),
         "transcript_clean": _valid_text(session / "transcript_clean.md"),
-        "summary": summary_valid,
+        "summary": _valid_summary(session / "summary.md"),
     }
 
 
