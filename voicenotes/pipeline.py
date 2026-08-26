@@ -71,12 +71,24 @@ def format_timestamp(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
-def transcribe_audio(audio: Path, models: Path) -> list[dict[str, object]]:
+def whisper_model_dir(paths: Paths) -> Path:
+    return paths.models / "whisper-large-v3-mlx"
+
+
+def download_whisper_model(paths: Paths) -> Path:
+    from huggingface_hub import snapshot_download
+
+    target = whisper_model_dir(paths)
+    snapshot_download(repo_id=WHISPER_REPO_ID, local_dir=target)
+    return target
+
+
+def transcribe_audio(audio: Path, paths: Paths) -> list[dict[str, object]]:
     import mlx_whisper
 
     result = mlx_whisper.transcribe(
         str(audio),
-        path_or_hf_repo=str(models / "whisper-large-v3-mlx"),
+        path_or_hf_repo=str(whisper_model_dir(paths)),
         task="transcribe",
         language=None,
         initial_prompt="This recording mixes English and Mandarin Chinese, sometimes switching mid-sentence.",
@@ -171,7 +183,7 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
 
         raw_path = session / "transcript_raw.md"
         if not status["transcript_raw"]:
-            write_raw_transcript(session, transcribe_audio(session / "audio.wav", paths.models))
+            write_raw_transcript(session, transcribe_audio(session / "audio.wav", paths))
             if not _valid_text(raw_path):
                 raise RuntimeError("raw transcript validation failed")
 

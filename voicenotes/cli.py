@@ -6,7 +6,8 @@ from pathlib import Path
 import sys
 
 from .config import config_as_dict, default_paths, load_config
-from .pipeline import process_session, retry_session
+from .doctor import run_doctor
+from .pipeline import download_whisper_model, process_session, retry_session
 from .queue import drain_queue
 from .recorder import list_audio_devices, record_test, start_recording, stop_recording
 from .state import status_snapshot
@@ -24,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("stop")
     subparsers.add_parser("toggle")
     subparsers.add_parser("worker", help=argparse.SUPPRESS)
+    subparsers.add_parser("doctor")
+    subparsers.add_parser("download-whisper-model", help=argparse.SUPPRESS)
     process_parser = subparsers.add_parser("process")
     process_parser.add_argument("session")
     retry_parser = subparsers.add_parser("retry")
@@ -61,6 +64,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "worker":
         paths = default_paths()
         drain_queue(load_config(), paths)
+        return 0
+    if args.command == "doctor":
+        paths = default_paths()
+        return run_doctor(load_config(), paths)
+    if args.command == "download-whisper-model":
+        print(download_whisper_model(default_paths()))
         return 0
     if args.command == "record-test":
         print(record_test(load_config(), default_paths(), args.duration))
