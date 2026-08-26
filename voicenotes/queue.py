@@ -2,19 +2,25 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import fcntl
 import json
 import os
 import subprocess
 import sys
+import tempfile
+import uuid
 
 from .config import Paths
-from .state import atomic_write_json, read_json
+from .state import atomic_write_json
+
+
+_LOCK_HANDLES: dict[Path, int] = {}
 
 
 def enqueue_session(paths: Paths, session: Path) -> Path:
     queue_dir = paths.run / "queue"
     queue_dir.mkdir(parents=True, exist_ok=True)
-    item = queue_dir / f"{datetime.now().strftime('%Y%m%dT%H%M%S')}_{session.name}.json"
+    item = queue_dir / f"{datetime.now().strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex}_{session.name}.json"
     atomic_write_json(item, {"session_path": str(session), "enqueued_at": datetime.now().isoformat(timespec="seconds")})
     return item
 
@@ -24,6 +30,8 @@ def _lock_path(paths: Paths) -> Path:
 
 
 def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
         return True
@@ -34,25 +42,60 @@ def _pid_alive(pid: int) -> bool:
 def acquire_pipeline_lock(paths: Paths) -> bool:
     paths.run.mkdir(parents=True, exist_ok=True)
     lock = _lock_path(paths)
-    if lock.exists():
+    if lock in _LOCK_HANDLES:
+        return False
+    while lock.exists():
         try:
-            payload = read_json(lock)
-            if _pid_alive(int(payload.get("pid", 0))):
+            fd = os.open(lock, os.O_RDWR)
+        except FileNotFoundError:
+            continue
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            return False
+        try:
+            try:
+                payload = json.load(os.fdopen(os.dup(fd), "r", encoding="utf-8"))
+                if _pid_alive(int(payload.get("pid", 0))):
+                    return False
+            except (OSError, ValueError, json.JSONDecodeError):
                 return False
-        except (OSError, ValueError, json.JSONDecodeError):
-            pass
-        lock.unlink(missing_ok=True)
+            try:
+                if os.path.samestat(os.stat(lock), os.fstat(fd)):
+                    lock.unlink(missing_ok=True)
+            except FileNotFoundError:
+                pass
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    payload = json.dumps({"pid": os.getpid(), "started_at": datetime.now().isoformat(timespec="seconds")})
+    fd, temp_name = tempfile.mkstemp(prefix=".pipeline.", suffix=".tmp", dir=paths.run)
     try:
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+        os.link(temp_name, lock)
     except FileExistsError:
         return False
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump({"pid": os.getpid(), "started_at": datetime.now().isoformat(timespec="seconds")}, handle)
+    finally:
+        Path(temp_name).unlink(missing_ok=True)
+    fd = os.open(lock, os.O_RDWR)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    _LOCK_HANDLES[lock] = fd
     return True
 
 
 def release_pipeline_lock(paths: Paths) -> None:
-    _lock_path(paths).unlink(missing_ok=True)
+    lock = _lock_path(paths)
+    fd = _LOCK_HANDLES.pop(lock, None)
+    if fd is None:
+        return
+    try:
+        lock.unlink(missing_ok=True)
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 def try_spawn_worker(paths: Paths) -> bool:

@@ -58,6 +58,34 @@ def test_stop_escalates_and_repairs_after_sigkill(tmp_path, monkeypatch):
     assert session_state["wav_repair_succeeded"] is True
 
 
+def test_stop_waits_for_exit_after_sigkill_before_repair(tmp_path, monkeypatch):
+    p = paths(tmp_path)
+    session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
+    session.mkdir(parents=True)
+    atomic_write_json(p.run / "current-recording.json", {"session_path": str(session), "pid": 777})
+    events = []
+    waits = iter([False, False, True])
+
+    monkeypatch.setattr("voicenotes.recorder.is_live_ffmpeg", lambda pid: True)
+    monkeypatch.setattr("os.kill", lambda pid, sig: events.append(("signal", sig)))
+    monkeypatch.setattr("voicenotes.recorder._wait_pid_exit", lambda pid, timeout: events.append(("wait", timeout)) or next(waits))
+    monkeypatch.setattr("voicenotes.recorder.repair_wav", lambda session_path: events.append(("repair", session_path)) or True)
+    monkeypatch.setattr("voicenotes.queue.enqueue_session", lambda paths, session_path: p.run / "queue" / "item.json")
+    monkeypatch.setattr("voicenotes.queue.try_spawn_worker", lambda paths: True)
+
+    stop_recording(p)
+
+    assert events == [
+        ("signal", signal.SIGINT),
+        ("wait", 10),
+        ("signal", signal.SIGTERM),
+        ("wait", 3),
+        ("signal", signal.SIGKILL),
+        ("wait", 1),
+        ("repair", session),
+    ]
+
+
 def test_stop_refuses_recycled_pid(tmp_path, monkeypatch):
     p = paths(tmp_path)
     session = tmp_path / "VoiceNotes" / "2026-08-27_143012"

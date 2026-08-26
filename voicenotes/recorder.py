@@ -115,6 +115,9 @@ def stop_recording(paths: Paths) -> Path:
             interrupted = True
 
     if interrupted:
+        if not _wait_pid_exit(pid, 1):
+            atomic_write_json(session / "session.json", {**recording, "recording_interrupted": True, "wav_repair_succeeded": False, "stop_failed": True})
+            raise RuntimeError("recording process did not exit after SIGKILL")
         repaired = repair_wav(session)
         atomic_write_json(session / "session.json", {**recording, "recording_interrupted": True, "wav_repair_succeeded": repaired})
 
