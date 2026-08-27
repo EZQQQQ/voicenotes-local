@@ -1,10 +1,12 @@
+import json
+import sys
 from pathlib import Path
 from dataclasses import replace
 
 import pytest
 
 from voicenotes.config import AppConfig, Paths
-from voicenotes.pipeline import CLEANUP_PROMPT, PROMPT_VERSION, SUMMARY_PROMPT, artifact_status, format_timestamp, process_session, retry_session
+from voicenotes.pipeline import CLEANUP_PROMPT, PROMPT_VERSION, SUMMARY_PROMPT, artifact_status, format_timestamp, process_session, retry_session, transcribe_audio
 
 
 def config(tmp_path):
@@ -25,6 +27,35 @@ def paths(tmp_path):
 def test_format_timestamp_uses_hh_mm_ss():
     assert format_timestamp(3.2) == "00:00:03"
     assert format_timestamp(3661.9) == "01:01:01"
+
+
+def test_transcribe_audio_runs_whisper_in_child_process(tmp_path, monkeypatch):
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"RIFF" + b"0" * 10000)
+    captured = {}
+
+    def fake_run(args, capture_output, text, check):
+        captured["args"] = args
+        captured["capture_output"] = capture_output
+        captured["text"] = text
+        captured["check"] = check
+
+        class Result:
+            stdout = json.dumps([{"start": 0.0, "end": 1.0, "text": "hello"}])
+
+        return Result()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    segments = transcribe_audio(audio, paths(tmp_path))
+
+    assert segments == [{"start": 0.0, "end": 1.0, "text": "hello"}]
+    assert captured == {
+        "args": [sys.executable, "-m", "voicenotes.transcriber", str(audio), str(tmp_path / "models" / "whisper-large-v3-mlx")],
+        "capture_output": True,
+        "text": True,
+        "check": True,
+    }
 
 
 def test_prompts_preserve_raw_language_choice():

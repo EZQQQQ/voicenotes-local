@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from pathlib import Path
 import subprocess
+import sys
 
 import voicenotes.ollama as ollama
 
@@ -92,16 +94,13 @@ def download_whisper_model(paths: Paths) -> Path:
 
 
 def transcribe_audio(audio: Path, paths: Paths) -> list[dict[str, object]]:
-    import mlx_whisper
-
-    result = mlx_whisper.transcribe(
-        str(audio),
-        path_or_hf_repo=str(whisper_model_dir(paths)),
-        task="transcribe",
-        language=None,
-        initial_prompt="This recording mixes English and Mandarin Chinese, sometimes switching mid-sentence.",
+    result = subprocess.run(
+        [sys.executable, "-m", "voicenotes.transcriber", str(audio), str(whisper_model_dir(paths))],
+        capture_output=True,
+        text=True,
+        check=True,
     )
-    return list(result["segments"])
+    return list(json.loads(result.stdout))
 
 
 def write_raw_transcript(session: Path, segments: list[dict[str, object]]) -> None:
