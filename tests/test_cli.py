@@ -42,15 +42,29 @@ def test_stop_command_prints_stopped_session(monkeypatch, capsys):
     assert capsys.readouterr().out.strip().endswith("2026-08-27_143012")
 
 
-def test_toggle_stops_when_recording_state_exists(tmp_path, monkeypatch, capsys):
+def test_toggle_stops_when_recording_state_is_live(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("HOME", str(tmp_path))
     run = tmp_path / ".voicenotes" / "run"
     run.mkdir(parents=True)
-    (run / "current-recording.json").write_text("{}", encoding="utf-8")
+    (run / "current-recording.json").write_text('{"pid": 123}', encoding="utf-8")
+    monkeypatch.setattr("voicenotes.cli.has_live_recording", lambda paths: True)
     monkeypatch.setattr("voicenotes.cli.stop_recording", lambda paths: paths.output_root / "2026-08-27_143012")
 
     assert main(["toggle"]) == 0
     assert capsys.readouterr().out.strip().endswith("2026-08-27_143012")
+
+
+def test_toggle_starts_when_recording_state_is_stale(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    run = tmp_path / ".voicenotes" / "run"
+    run.mkdir(parents=True)
+    (run / "current-recording.json").write_text('{"pid": 123}', encoding="utf-8")
+    monkeypatch.setattr("voicenotes.cli.has_live_recording", lambda paths: False)
+    monkeypatch.setattr("voicenotes.cli.start_recording", lambda config, paths: paths.output_root / "2026-08-27_143045")
+    monkeypatch.setattr("voicenotes.cli.load_config", lambda: object())
+
+    assert main(["toggle"]) == 0
+    assert capsys.readouterr().out.strip().endswith("2026-08-27_143045")
 
 
 def test_toggle_starts_when_recording_state_is_absent(tmp_path, monkeypatch, capsys):
@@ -66,19 +80,37 @@ def test_process_command_runs_pipeline_for_session(tmp_path, monkeypatch, capsys
     session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
     processed = []
     monkeypatch.setattr("voicenotes.cli.load_config", lambda: object())
-    monkeypatch.setattr("voicenotes.cli.default_paths", lambda: object())
+    worker_paths = object()
+    monkeypatch.setattr("voicenotes.cli.default_paths", lambda: worker_paths)
+    monkeypatch.setattr("voicenotes.cli.acquire_pipeline_lock", lambda paths: True)
+    released = []
+    monkeypatch.setattr("voicenotes.cli.release_pipeline_lock", lambda paths: released.append(paths))
     monkeypatch.setattr("voicenotes.cli.process_session", lambda path, config, paths: processed.append((path, config, paths)))
 
     assert main(["process", str(session)]) == 0
     assert processed[0][0] == session
+    assert released == [worker_paths]
     assert capsys.readouterr().out.strip() == str(session)
 
 
 def test_retry_command_returns_one_for_pipeline_failure(tmp_path, monkeypatch, capsys):
     session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
     monkeypatch.setattr("voicenotes.cli.load_config", lambda: object())
-    monkeypatch.setattr("voicenotes.cli.default_paths", lambda: object())
+    worker_paths = object()
+    monkeypatch.setattr("voicenotes.cli.default_paths", lambda: worker_paths)
+    monkeypatch.setattr("voicenotes.cli.acquire_pipeline_lock", lambda paths: True)
+    monkeypatch.setattr("voicenotes.cli.release_pipeline_lock", lambda paths: None)
     monkeypatch.setattr("voicenotes.cli.retry_session", lambda path, config, paths: (_ for _ in ()).throw(RuntimeError("pipeline failed")))
 
     assert main(["retry", str(session)]) == 1
     assert "pipeline failed" in capsys.readouterr().err
+
+
+def test_manual_pipeline_command_returns_one_when_worker_is_active(tmp_path, monkeypatch, capsys):
+    session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
+    monkeypatch.setattr("voicenotes.cli.default_paths", lambda: object())
+    monkeypatch.setattr("voicenotes.cli.acquire_pipeline_lock", lambda paths: False)
+    monkeypatch.setattr("voicenotes.cli.process_session", lambda *args: (_ for _ in ()).throw(AssertionError("must not run")))
+
+    assert main(["process", str(session)]) == 1
+    assert "pipeline is already active" in capsys.readouterr().err

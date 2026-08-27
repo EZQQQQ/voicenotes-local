@@ -2,12 +2,19 @@ import json
 import threading
 from datetime import datetime
 
+import pytest
+
 from voicenotes.config import Paths
 from voicenotes.queue import acquire_pipeline_lock, enqueue_session, release_pipeline_lock, try_spawn_worker
 
 
 def paths(tmp_path):
     return Paths(tmp_path / "app", tmp_path / "run", tmp_path / "config.toml", tmp_path / "models", tmp_path / "VoiceNotes")
+
+
+@pytest.fixture(autouse=True)
+def prevent_worker_spawn(monkeypatch):
+    monkeypatch.setattr("voicenotes.queue.try_spawn_worker", lambda paths: False)
 
 
 def test_enqueue_session_writes_json_item(tmp_path):

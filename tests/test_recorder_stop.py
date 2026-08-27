@@ -95,3 +95,6 @@ def test_stop_refuses_recycled_pid(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError, match="stale recording state"):
         stop_recording(p)
+
+    assert not (p.run / "current-recording.json").exists()
+    assert "stale recording state" in (p.run / "last-error.txt").read_text(encoding="utf-8")

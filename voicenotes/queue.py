@@ -12,7 +12,7 @@ import time
 import uuid
 
 from .config import AppConfig, Paths
-from .state import atomic_write_json, atomic_write_text, read_json
+from .state import atomic_write_json, atomic_write_text, clear_last_error, read_json, write_last_error
 
 
 _LOCK_HANDLES: dict[Path, int] = {}
@@ -23,6 +23,7 @@ def enqueue_session(paths: Paths, session: Path) -> Path:
     queue_dir.mkdir(parents=True, exist_ok=True)
     item = queue_dir / f"{datetime.now().strftime('%Y%m%dT%H%M%S')}_{time.monotonic_ns()}_{uuid.uuid4().hex}_{session.name}.json"
     atomic_write_json(item, {"session_path": str(session), "enqueued_at": datetime.now().isoformat(timespec="seconds")})
+    try_spawn_worker(paths)
     return item
 
 
@@ -106,26 +107,64 @@ def _worker_log(paths: Paths, message: str) -> None:
         handle.write(f"{datetime.now().isoformat(timespec='seconds')} {message}\n")
 
 
+def _queue_items(paths: Paths) -> list[Path]:
+    return sorted((paths.run / "queue").glob("*.json"))
+
+
+def _move_malformed_item(paths: Paths, item: Path) -> None:
+    malformed_dir = item.parent / "malformed"
+    malformed_dir.mkdir(parents=True, exist_ok=True)
+    item.replace(malformed_dir / item.name)
+
+
 def drain_queue(config: AppConfig, paths: Paths) -> None:
     if not acquire_pipeline_lock(paths):
         return
 
     _worker_log(paths, "worker started")
+    attempted_items: set[Path] = set()
+    had_errors = False
     try:
-        queue_dir = paths.run / "queue"
-        for item in sorted(queue_dir.glob("*.json")):
-            try:
-                session = Path(str(read_json(item)["session_path"]))
-                from . import pipeline
+        while True:
+            items = [item for item in _queue_items(paths) if item not in attempted_items]
+            if not items:
+                break
+            for item in items:
+                attempted_items.add(item)
+                try:
+                    payload = read_json(item)
+                    session_path = payload["session_path"]
+                    if not isinstance(session_path, str) or not session_path:
+                        raise ValueError("missing session_path")
+                    session = Path(session_path)
+                except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError) as error:
+                    had_errors = True
+                    message = f"Malformed queue item {item.name}: {error}"
+                    try:
+                        _move_malformed_item(paths, item)
+                    except OSError as move_error:
+                        message = f"{message}; unable to move aside: {move_error}"
+                    _worker_log(paths, f"worker skipped malformed queue item: {item.name}")
+                    write_last_error(paths, message)
+                    continue
+                try:
+                    from . import pipeline
 
-                pipeline.process_session(session, config, paths)
-            except Exception as error:
-                atomic_write_text(session / "error.log", f"{error}\n")
-            else:
-                item.unlink(missing_ok=True)
+                    pipeline.process_session(session, config, paths)
+                except Exception as error:
+                    had_errors = True
+                    atomic_write_text(session / "error.log", f"{error}\n")
+                    write_last_error(paths, str(error))
+                else:
+                    item.unlink(missing_ok=True)
     finally:
         release_pipeline_lock(paths)
         _worker_log(paths, "worker drained queue")
+        remaining_items = [item for item in _queue_items(paths) if item not in attempted_items]
+        if not had_errors and not remaining_items:
+            clear_last_error(paths)
+        if remaining_items:
+            try_spawn_worker(paths)
 
 
 def try_spawn_worker(paths: Paths) -> bool:
@@ -134,6 +173,11 @@ def try_spawn_worker(paths: Paths) -> bool:
     worker_log = paths.run / "worker.log"
     worker_log.parent.mkdir(parents=True, exist_ok=True)
     handle = worker_log.open("ab")
-    subprocess.Popen([sys.executable, "-m", "voicenotes", "worker"], stdin=subprocess.DEVNULL, stdout=handle, stderr=handle)
-    handle.close()
+    try:
+        subprocess.Popen([sys.executable, "-m", "voicenotes", "worker"], stdin=subprocess.DEVNULL, stdout=handle, stderr=handle)
+    except OSError as error:
+        write_last_error(paths, f"Unable to start queue worker: {error}")
+        return False
+    finally:
+        handle.close()
     return True

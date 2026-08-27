@@ -9,7 +9,7 @@ import subprocess
 import time
 
 from .config import AppConfig, Paths
-from .state import atomic_write_json, notify, play_start_sound, read_json
+from .state import atomic_write_json, clear_last_error, notify, play_start_sound, read_json, write_last_error
 
 
 DEVICE_RE = re.compile(r"\[(\d+)\]\s+(.+)$")
@@ -71,6 +71,22 @@ def _clear_stale_recording_state(paths: Paths) -> None:
         state_path.unlink()
 
 
+def has_live_recording(paths: Paths) -> bool:
+    state_path = _active_recording_path(paths)
+    if not state_path.exists():
+        return False
+    try:
+        pid = int(read_json(state_path).get("pid", 0))
+    except (OSError, TypeError, ValueError):
+        return False
+    return pid > 0 and is_live_ffmpeg(pid)
+
+
+def _recording_error(paths: Paths, message: str) -> None:
+    write_last_error(paths, message)
+    notify("Recording error", message)
+
+
 def _wait_pid_exit(pid: int, timeout: float) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -97,13 +113,27 @@ def repair_wav(session: Path) -> bool:
 
 
 def stop_recording(paths: Paths) -> Path:
+    try:
+        return _stop_recording(paths)
+    except Exception as error:
+        _recording_error(paths, str(error))
+        raise
+
+
+def _stop_recording(paths: Paths) -> Path:
     state_path = _active_recording_path(paths)
     if not state_path.exists():
         raise RuntimeError("No active recording")
-    recording = read_json(state_path)
-    pid = int(recording.get("pid", 0))
-    session = Path(str(recording.get("session_path", "")))
+    try:
+        recording = read_json(state_path)
+        pid = int(recording.get("pid", 0))
+        session = Path(str(recording.get("session_path", "")))
+    except (OSError, TypeError, ValueError):
+        recording = {}
+        pid = 0
+        session = Path()
     if not pid or not is_live_ffmpeg(pid):
+        _clear_stale_recording_state(paths)
         raise RuntimeError("stale recording state")
 
     interrupted = False
@@ -122,22 +152,29 @@ def stop_recording(paths: Paths) -> Path:
         atomic_write_json(session / "session.json", {**recording, "recording_interrupted": True, "wav_repair_succeeded": repaired})
 
     state_path.unlink(missing_ok=True)
-    from .queue import enqueue_session, try_spawn_worker
+    from .queue import enqueue_session
 
     enqueue_session(paths, session)
-    try_spawn_worker(paths)
     notify("Recording stopped", "Session queued for processing")
     return session
 
 
 def start_recording(config: AppConfig, paths: Paths) -> Path:
+    try:
+        return _start_recording(config, paths)
+    except Exception as error:
+        _recording_error(paths, str(error))
+        raise
+
+
+def _start_recording(config: AppConfig, paths: Paths) -> Path:
     state_path = _active_recording_path(paths)
     if state_path.exists():
-        state = read_json(state_path)
-        pid = int(state.get("pid", 0))
-        if pid and is_live_ffmpeg(pid):
+        if has_live_recording(paths):
+            state = read_json(state_path)
             raise RuntimeError(f"Recording already active: {state.get('session_path')}")
         _clear_stale_recording_state(paths)
+        notify("Recording recovered", "Cleared stale recording state")
     devices = list_audio_devices()
     device_index = resolve_audio_device(config.audio_device, devices)
     resolved_name = devices[device_index]
@@ -151,6 +188,7 @@ def start_recording(config: AppConfig, paths: Paths) -> Path:
         stdout=subprocess.DEVNULL,
         stderr=log_handle,
     )
+    clear_last_error(paths)
     log_handle.close()
     atomic_write_json(
         state_path,

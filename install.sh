@@ -57,14 +57,18 @@ chmod +x "$WRAPPER"
 
 if [[ "${NONINTERACTIVE:-}" != "1" ]]; then
   echo "VoiceNotes will download local models. Combined download size is approximately 12GB."
-  read -r -p "Continue? [y/N] " answer
+  if ! read -r -p "Continue? [y/N] " answer </dev/tty; then
+    echo "No interactive terminal is available. Re-run with NONINTERACTIVE=1 to allow model downloads." >&2
+    exit 1
+  fi
   case "$answer" in
     y|Y|yes|YES) ;;
     *) echo "Cancelled before model downloads."; exit 1 ;;
   esac
 fi
 
-ollama pull qwen2.5:14b
+OLLAMA_MODEL="$("$WRAPPER" config --json | "$VENV_DIR/bin/python" -c 'import json, sys; print(json.load(sys.stdin)["ollama_model"])')"
+ollama pull "$OLLAMA_MODEL"
 "$WRAPPER" download-whisper-model
 
 mkdir -p "$HOME/.hammerspoon"

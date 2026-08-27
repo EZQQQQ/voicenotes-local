@@ -126,3 +126,15 @@ def test_status_snapshot_reports_recording_processing_queue_and_error(tmp_path):
         "active_session": "/tmp/session",
         "state_label": "recording",
     }
+
+
+def test_status_snapshot_prioritizes_runtime_error_over_retained_queue_item(tmp_path):
+    run = tmp_path / ".voicenotes" / "run"
+    queue = run / "queue"
+    queue.mkdir(parents=True)
+    (queue / "failed.json").write_text('{"session_path": "/tmp/queued"}', encoding="utf-8")
+    (run / "last-error.txt").write_text("pipeline failed", encoding="utf-8")
+
+    snapshot = status_snapshot(Paths(tmp_path / ".voicenotes/app", run, run.parent / "config.toml", run.parent / "models", tmp_path / "VoiceNotes"))
+
+    assert snapshot["state_label"] == "error"

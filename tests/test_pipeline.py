@@ -159,6 +159,58 @@ def test_retry_regenerates_malformed_utf8_transcript(tmp_path, monkeypatch):
     assert artifact_status(session)["summary"] is True
 
 
+def test_retry_regenerates_downstream_artifacts_after_invalid_raw_transcript(tmp_path, monkeypatch):
+    session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
+    session.mkdir(parents=True)
+    (session / "audio.wav").write_bytes(b"RIFF" + b"0" * 10000)
+    (session / "transcript_raw.md").write_text("", encoding="utf-8")
+    (session / "transcript_clean.md").write_text("stale clean\n", encoding="utf-8")
+    (session / "summary.md").write_text(
+        "\n".join(
+            [
+                "## Meeting Metadata",
+                "stale",
+                "## Key Discussion Points",
+                "- stale",
+                "## Decisions Made",
+                "- stale",
+                "## Action Items",
+                "- [ ] stale",
+                "## Open Questions",
+                "- stale",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    monkeypatch.setattr("voicenotes.pipeline.transcribe_audio", lambda audio, models: [{"start": 0, "end": 1, "text": "fresh raw"}])
+    responses = iter(
+        [
+            "fresh clean",
+            "\n".join(
+                [
+                    "## Meeting Metadata",
+                    "fresh",
+                    "## Key Discussion Points",
+                    "- fresh",
+                    "## Decisions Made",
+                    "- fresh",
+                    "## Action Items",
+                    "- [ ] fresh",
+                    "## Open Questions",
+                    "- fresh",
+                ]
+            ),
+        ]
+    )
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: next(responses))
+
+    retry_session(session, config(tmp_path), paths(tmp_path))
+
+    assert (session / "transcript_clean.md").read_text(encoding="utf-8") == "fresh clean\n"
+    assert "- fresh" in (session / "summary.md").read_text(encoding="utf-8")
+
+
 def test_process_session_rejects_empty_raw_transcript_before_cleanup(tmp_path, monkeypatch):
     session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
     session.mkdir(parents=True)

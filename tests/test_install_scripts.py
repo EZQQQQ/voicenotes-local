@@ -17,6 +17,10 @@ def test_install_script_has_required_idempotent_behaviors():
     assert 'require("voicenotes")' in script
     assert "hammerspoon://reload" in script
     assert "NONINTERACTIVE" in script
+    assert "</dev/tty" in script
+    assert "NONINTERACTIVE=1" in script
+    assert '"$WRAPPER" config --json' in script
+    assert 'ollama pull "$OLLAMA_MODEL"' in script
 
 
 def test_install_script_uses_explicit_homebrew_binary_after_bootstrap():

@@ -42,6 +42,14 @@ def read_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def write_last_error(paths: Paths, message: str) -> None:
+    atomic_write_text(paths.run / "last-error.txt", message.strip() + "\n")
+
+
+def clear_last_error(paths: Paths) -> None:
+    (paths.run / "last-error.txt").unlink(missing_ok=True)
+
+
 def notify(title: str, message: str) -> None:
     script = f"display notification {json.dumps(message)} with title {json.dumps(title)}"
     subprocess.run(["osascript", "-e", script], check=False)
@@ -87,7 +95,7 @@ def status_snapshot(paths: Paths) -> dict[str, object]:
     last_error = error_path.read_text(encoding="utf-8").strip() if error_path.exists() else None
     recording = recording_path.exists()
     processing = lock_path.exists()
-    state_label = "recording" if recording else "processing" if processing else "queued" if queued_count else "error" if last_error else "idle"
+    state_label = "recording" if recording else "processing" if processing else "error" if last_error else "queued" if queued_count else "idle"
     return {
         "recording": recording,
         "processing": processing,

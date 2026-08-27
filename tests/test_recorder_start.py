@@ -86,6 +86,16 @@ def test_start_recording_writes_state_and_ffmpeg_log(tmp_path, monkeypatch):
     assert state["resolved_device"] == "MacBook Pro Microphone"
 
 
+def test_start_recording_writes_runtime_error_when_device_resolution_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr("voicenotes.recorder.list_audio_devices", lambda: [])
+    monkeypatch.setattr("voicenotes.recorder.notify", lambda title, message: None)
+
+    with pytest.raises(ValueError, match="No avfoundation audio devices"):
+        start_recording(config(tmp_path), paths(tmp_path))
+
+    assert "No avfoundation audio devices" in (tmp_path / "run" / "last-error.txt").read_text(encoding="utf-8")
+
+
 def test_record_test_uses_shared_device_resolution_without_state_file(tmp_path, monkeypatch):
     launched = {}
     monkeypatch.setattr("voicenotes.recorder.list_audio_devices", lambda: ["MacBook Pro Microphone"])

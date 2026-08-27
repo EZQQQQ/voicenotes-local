@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import importlib
 import platform
 import shutil
 
@@ -26,6 +27,16 @@ def _require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def _require_runtime_dependencies() -> None:
+    importlib.import_module("huggingface_hub")
+    importlib.import_module("mlx_whisper")
+
+
+def _require_model_files(paths: Paths) -> None:
+    model_dir = whisper_model_dir(paths)
+    _require(model_dir.is_dir() and any(model_dir.iterdir()), f"missing or empty {model_dir}")
+
+
 def run_doctor(config: AppConfig, paths: Paths) -> int:
     checks = [
         _check("Apple Silicon", lambda: _require(platform.machine() == "arm64", "Apple Silicon is required")),
@@ -33,8 +44,9 @@ def run_doctor(config: AppConfig, paths: Paths) -> int:
         _check("ffmpeg", lambda: _require(shutil.which("ffmpeg") is not None, "ffmpeg not found")),
         _check("ollama", lambda: _require(shutil.which("ollama") is not None, "ollama not found")),
         _check("git", lambda: _require(shutil.which("git") is not None, "git not found")),
-        _check("python3", lambda: _require(shutil.which("python3") is not None, "python3 not found")),
-        _check("Whisper model", lambda: _require(whisper_model_dir(paths).exists(), f"missing {whisper_model_dir(paths)}")),
+        _check("python3.11", lambda: _require(shutil.which("python3.11") is not None, "python3.11 not found")),
+        _check("Python dependencies", _require_runtime_dependencies),
+        _check("Whisper model", lambda: _require_model_files(paths)),
         _check("Ollama model", lambda: ollama.ensure_model_available(config.ollama_model)),
     ]
 

@@ -8,8 +8,8 @@ import sys
 from .config import config_as_dict, default_paths, load_config
 from .doctor import run_doctor
 from .pipeline import download_whisper_model, process_session, retry_session
-from .queue import drain_queue
-from .recorder import list_audio_devices, record_test, start_recording, stop_recording
+from .queue import acquire_pipeline_lock, drain_queue, release_pipeline_lock
+from .recorder import has_live_recording, list_audio_devices, record_test, start_recording, stop_recording
 from .state import status_snapshot
 
 
@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "toggle":
         paths = default_paths()
-        if (paths.run / "current-recording.json").exists():
+        if has_live_recording(paths):
             print(stop_recording(paths))
         else:
             print(start_recording(load_config(), paths))
@@ -77,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"process", "retry"}:
         session = Path(args.session).expanduser()
         paths = default_paths()
+        if not acquire_pipeline_lock(paths):
+            print("Another VoiceNotes pipeline is already active.", file=sys.stderr)
+            return 1
         try:
             if args.command == "process":
                 process_session(session, load_config(), paths)
@@ -88,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as error:
             print(error, file=sys.stderr)
             return 2
+        finally:
+            release_pipeline_lock(paths)
         print(session)
         return 0
 
