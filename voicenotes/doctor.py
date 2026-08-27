@@ -32,9 +32,18 @@ def _require_runtime_dependencies() -> None:
     importlib.import_module("mlx_whisper")
 
 
+def _require_homebrew_python_311() -> None:
+    python = shutil.which("python3.11")
+    _require(python is not None, "python3.11 not found")
+    resolved = Path(python).resolve()
+    _require(str(resolved).startswith("/opt/homebrew/"), f"Homebrew python3.11 required, found {resolved}")
+
+
 def _require_model_files(paths: Paths) -> None:
     model_dir = whisper_model_dir(paths)
-    _require(model_dir.is_dir() and any(model_dir.iterdir()), f"missing or empty {model_dir}")
+    has_config = (model_dir / "config.json").is_file()
+    has_weights = any(model_dir.glob("*.safetensors"))
+    _require(model_dir.is_dir() and has_config and has_weights, f"incomplete or missing {model_dir}")
 
 
 def run_doctor(config: AppConfig, paths: Paths) -> int:
@@ -44,7 +53,7 @@ def run_doctor(config: AppConfig, paths: Paths) -> int:
         _check("ffmpeg", lambda: _require(shutil.which("ffmpeg") is not None, "ffmpeg not found")),
         _check("ollama", lambda: _require(shutil.which("ollama") is not None, "ollama not found")),
         _check("git", lambda: _require(shutil.which("git") is not None, "git not found")),
-        _check("python3.11", lambda: _require(shutil.which("python3.11") is not None, "python3.11 not found")),
+        _check("Homebrew python3.11", _require_homebrew_python_311),
         _check("Python dependencies", _require_runtime_dependencies),
         _check("Whisper model", lambda: _require_model_files(paths)),
         _check("Ollama model", lambda: ollama.ensure_model_available(config.ollama_model)),

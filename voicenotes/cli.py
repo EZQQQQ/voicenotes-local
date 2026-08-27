@@ -8,7 +8,7 @@ import sys
 from .config import config_as_dict, default_paths, load_config
 from .doctor import run_doctor
 from .pipeline import download_whisper_model, process_session, retry_session
-from .queue import acquire_pipeline_lock, drain_queue, release_pipeline_lock
+from .queue import acquire_pipeline_lock, drain_queue, release_pipeline_lock, try_spawn_worker
 from .recorder import has_live_recording, list_audio_devices, record_test, start_recording, stop_recording
 from .state import status_snapshot
 
@@ -93,6 +93,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         finally:
             release_pipeline_lock(paths)
+            if any((paths.run / "queue").glob("*.json")):
+                try_spawn_worker(paths)
         print(session)
         return 0
 

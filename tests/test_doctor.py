@@ -1,5 +1,4 @@
 from pathlib import Path
-from types import SimpleNamespace
 
 from voicenotes.config import AppConfig, Paths
 from voicenotes.doctor import run_doctor
@@ -36,6 +35,7 @@ def test_doctor_returns_success_when_checks_pass(tmp_path, monkeypatch, capsys):
     p.models.mkdir(parents=True)
     (p.models / "whisper-large-v3-mlx").mkdir()
     (p.models / "whisper-large-v3-mlx" / "config.json").write_text("{}", encoding="utf-8")
+    (p.models / "whisper-large-v3-mlx" / "model.safetensors").write_bytes(b"weights")
     (tmp_path / ".hammerspoon").mkdir()
     (tmp_path / ".hammerspoon" / "voicenotes.lua").write_text("-- ok", encoding="utf-8")
     (tmp_path / ".hammerspoon" / "init.lua").write_text('require("voicenotes")\n', encoding="utf-8")
@@ -57,6 +57,7 @@ def test_doctor_reports_tcc_hint_when_record_test_fails(tmp_path, monkeypatch, c
     p.models.mkdir(parents=True)
     (p.models / "whisper-large-v3-mlx").mkdir()
     (p.models / "whisper-large-v3-mlx" / "config.json").write_text("{}", encoding="utf-8")
+    (p.models / "whisper-large-v3-mlx" / "model.safetensors").write_bytes(b"weights")
     monkeypatch.setattr("platform.machine", lambda: "arm64")
     monkeypatch.setattr("shutil.which", lambda command: f"/opt/homebrew/bin/{command}")
     monkeypatch.setattr("voicenotes.doctor.importlib.import_module", lambda name: object())
@@ -66,3 +67,36 @@ def test_doctor_reports_tcc_hint_when_record_test_fails(tmp_path, monkeypatch, c
 
     assert run_doctor(config(tmp_path), p) == 1
     assert "Privacy & Security > Microphone" in capsys.readouterr().out
+
+
+def test_doctor_requires_homebrew_python_311(tmp_path, monkeypatch, capsys):
+    p = paths(tmp_path)
+    model = p.models / "whisper-large-v3-mlx"
+    model.mkdir(parents=True)
+    (model / "config.json").write_text("{}", encoding="utf-8")
+    (model / "model.safetensors").write_bytes(b"weights")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr("shutil.which", lambda command: f"/usr/local/bin/{command}" if command == "python3.11" else f"/opt/homebrew/bin/{command}")
+    monkeypatch.setattr("voicenotes.doctor.importlib.import_module", lambda name: object())
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    monkeypatch.setattr("voicenotes.recorder.list_audio_devices", lambda: ["MacBook Pro Microphone"])
+    monkeypatch.setattr("voicenotes.recorder.record_test", lambda *args, **kwargs: tmp_path / "VoiceNotes" / "record-test")
+
+    assert run_doctor(config(tmp_path), p) == 1
+    assert "Homebrew python3.11" in capsys.readouterr().out
+
+
+def test_doctor_requires_config_and_safetensors_for_whisper_model(tmp_path, monkeypatch, capsys):
+    p = paths(tmp_path)
+    model = p.models / "whisper-large-v3-mlx"
+    model.mkdir(parents=True)
+    (model / "config.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr("shutil.which", lambda command: f"/opt/homebrew/bin/{command}")
+    monkeypatch.setattr("voicenotes.doctor.importlib.import_module", lambda name: object())
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    monkeypatch.setattr("voicenotes.recorder.list_audio_devices", lambda: ["MacBook Pro Microphone"])
+    monkeypatch.setattr("voicenotes.recorder.record_test", lambda *args, **kwargs: tmp_path / "VoiceNotes" / "record-test")
+
+    assert run_doctor(config(tmp_path), p) == 1
+    assert "Whisper model" in capsys.readouterr().out

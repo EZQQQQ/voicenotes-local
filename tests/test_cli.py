@@ -80,11 +80,14 @@ def test_process_command_runs_pipeline_for_session(tmp_path, monkeypatch, capsys
     session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
     processed = []
     monkeypatch.setattr("voicenotes.cli.load_config", lambda: object())
-    worker_paths = object()
+    run = tmp_path / "run"
+    (run / "queue").mkdir(parents=True)
+    worker_paths = type("WorkerPaths", (), {"run": run})()
     monkeypatch.setattr("voicenotes.cli.default_paths", lambda: worker_paths)
     monkeypatch.setattr("voicenotes.cli.acquire_pipeline_lock", lambda paths: True)
     released = []
     monkeypatch.setattr("voicenotes.cli.release_pipeline_lock", lambda paths: released.append(paths))
+    monkeypatch.setattr("voicenotes.cli.try_spawn_worker", lambda paths: False)
     monkeypatch.setattr("voicenotes.cli.process_session", lambda path, config, paths: processed.append((path, config, paths)))
 
     assert main(["process", str(session)]) == 0
@@ -96,10 +99,13 @@ def test_process_command_runs_pipeline_for_session(tmp_path, monkeypatch, capsys
 def test_retry_command_returns_one_for_pipeline_failure(tmp_path, monkeypatch, capsys):
     session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
     monkeypatch.setattr("voicenotes.cli.load_config", lambda: object())
-    worker_paths = object()
+    run = tmp_path / "run"
+    (run / "queue").mkdir(parents=True)
+    worker_paths = type("WorkerPaths", (), {"run": run})()
     monkeypatch.setattr("voicenotes.cli.default_paths", lambda: worker_paths)
     monkeypatch.setattr("voicenotes.cli.acquire_pipeline_lock", lambda paths: True)
     monkeypatch.setattr("voicenotes.cli.release_pipeline_lock", lambda paths: None)
+    monkeypatch.setattr("voicenotes.cli.try_spawn_worker", lambda paths: False)
     monkeypatch.setattr("voicenotes.cli.retry_session", lambda path, config, paths: (_ for _ in ()).throw(RuntimeError("pipeline failed")))
 
     assert main(["retry", str(session)]) == 1
@@ -114,3 +120,26 @@ def test_manual_pipeline_command_returns_one_when_worker_is_active(tmp_path, mon
 
     assert main(["process", str(session)]) == 1
     assert "pipeline is already active" in capsys.readouterr().err
+
+
+def test_manual_pipeline_command_spawns_worker_for_items_queued_while_locked(tmp_path, monkeypatch):
+    session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
+    run = tmp_path / "run"
+    queue = run / "queue"
+    queue.mkdir(parents=True)
+    worker_paths = type("WorkerPaths", (), {"run": run})()
+    spawned = []
+
+    monkeypatch.setattr("voicenotes.cli.load_config", lambda: object())
+    monkeypatch.setattr("voicenotes.cli.default_paths", lambda: worker_paths)
+    monkeypatch.setattr("voicenotes.cli.acquire_pipeline_lock", lambda paths: True)
+    monkeypatch.setattr("voicenotes.cli.release_pipeline_lock", lambda paths: None)
+    monkeypatch.setattr("voicenotes.cli.try_spawn_worker", lambda paths: spawned.append(paths) or True)
+
+    def process(path, config, paths):
+        (queue / "queued.json").write_text('{"session_path": "/tmp/queued"}', encoding="utf-8")
+
+    monkeypatch.setattr("voicenotes.cli.process_session", process)
+
+    assert main(["process", str(session)]) == 0
+    assert spawned == [worker_paths]
