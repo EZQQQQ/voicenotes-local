@@ -112,6 +112,26 @@ def repair_wav(session: Path) -> bool:
     return result.returncode == 0
 
 
+def create_audio_preview(session: Path) -> bool:
+    audio = session / "audio.wav"
+    preview = session / "audio.m4a"
+    if not audio.exists():
+        return False
+    try:
+        with (session / "ffmpeg.log").open("ab") as log_handle:
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-i", str(audio), "-vn", "-c:a", "aac", "-b:a", "96k", str(preview)],
+                stdin=subprocess.DEVNULL,
+                stdout=log_handle,
+                stderr=log_handle,
+                check=False,
+                timeout=60,
+            )
+        return result.returncode == 0 and preview.exists()
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def stop_recording(paths: Paths) -> Path:
     try:
         return _stop_recording(paths)
@@ -151,6 +171,7 @@ def _stop_recording(paths: Paths) -> Path:
         repaired = repair_wav(session)
         atomic_write_json(session / "session.json", {**recording, "recording_interrupted": True, "wav_repair_succeeded": repaired})
 
+    create_audio_preview(session)
     state_path.unlink(missing_ok=True)
     from .queue import enqueue_session
 
@@ -216,4 +237,5 @@ def record_test(config: AppConfig, paths: Paths, duration_seconds: int = 10) -> 
             check=True,
             timeout=max(duration_seconds + 10, 15),
         )
+    create_audio_preview(session)
     return session

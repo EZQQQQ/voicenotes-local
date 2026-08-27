@@ -33,6 +33,7 @@ Session folders use second precision to avoid collisions:
 ```text
 ~/VoiceNotes/2026-08-27_143012/
   audio.wav
+  audio.m4a
   ffmpeg.log
   transcript_raw.md
   transcript_clean.md
@@ -41,6 +42,8 @@ Session folders use second precision to avoid collisions:
   error.log
   session.json
 ```
+
+`audio.wav` is the canonical recording used for transcription because PCM WAV is robust if recording is interrupted. `audio.m4a` is a best-effort listening copy for Finder, QuickTime, and other macOS apps.
 
 If an interrupted WAV is repaired, the original is kept as `audio.interrupted.wav` and the repaired file is written to `audio.wav`.
 

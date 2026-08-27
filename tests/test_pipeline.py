@@ -4,7 +4,7 @@ from dataclasses import replace
 import pytest
 
 from voicenotes.config import AppConfig, Paths
-from voicenotes.pipeline import artifact_status, format_timestamp, process_session, retry_session
+from voicenotes.pipeline import CLEANUP_PROMPT, PROMPT_VERSION, SUMMARY_PROMPT, artifact_status, format_timestamp, process_session, retry_session
 
 
 def config(tmp_path):
@@ -25,6 +25,17 @@ def paths(tmp_path):
 def test_format_timestamp_uses_hh_mm_ss():
     assert format_timestamp(3.2) == "00:00:03"
     assert format_timestamp(3661.9) == "01:01:01"
+
+
+def test_prompts_preserve_raw_language_choice():
+    cleanup = CLEANUP_PROMPT.format(transcript_raw="[00:00:00 - 00:00:03] Testing, testing, one, two, three.")
+    summary = SUMMARY_PROMPT.format(transcript_clean="[00:00:00 - 00:00:03] Testing, testing, one, two, three.")
+
+    assert PROMPT_VERSION == "2026-08-28-v2"
+    assert "Your default behavior is to leave text unchanged." in cleanup
+    assert 'Never replace "Testing, testing, one, two, three" with "测试，测试，一，二，三"' in cleanup
+    assert "When uncertain, keep the raw transcript exactly as written." in cleanup
+    assert 'must not render it as "测试，测试，一，二，三"' in summary
 
 
 def test_process_session_writes_all_artifacts(tmp_path, monkeypatch):

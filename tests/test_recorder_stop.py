@@ -19,10 +19,12 @@ def test_stop_sends_sigint_clears_state_and_enqueues(tmp_path, monkeypatch):
     atomic_write_json(p.run / "current-recording.json", {"session_path": str(session), "pid": 555, "resolved_device": "Mic"})
     sent = []
     enqueued = []
+    previews = []
 
     monkeypatch.setattr("voicenotes.recorder.is_live_ffmpeg", lambda pid: True)
     monkeypatch.setattr("os.kill", lambda pid, sig: sent.append((pid, sig)))
     monkeypatch.setattr("voicenotes.recorder._wait_pid_exit", lambda pid, timeout: True)
+    monkeypatch.setattr("voicenotes.recorder.create_audio_preview", lambda session_path: previews.append(session_path) or True)
     monkeypatch.setattr("voicenotes.queue.enqueue_session", lambda paths, session_path: enqueued.append(session_path) or (p.run / "queue" / "item.json"))
     monkeypatch.setattr("voicenotes.queue.try_spawn_worker", lambda paths: True)
 
@@ -30,6 +32,7 @@ def test_stop_sends_sigint_clears_state_and_enqueues(tmp_path, monkeypatch):
 
     assert stopped == session
     assert sent == [(555, signal.SIGINT)]
+    assert previews == [session]
     assert enqueued == [session]
     assert not (p.run / "current-recording.json").exists()
 
@@ -47,6 +50,7 @@ def test_stop_escalates_and_repairs_after_sigkill(tmp_path, monkeypatch):
     monkeypatch.setattr("os.kill", lambda pid, sig: sent.append(sig))
     monkeypatch.setattr("voicenotes.recorder._wait_pid_exit", lambda pid, timeout: next(waits, True))
     monkeypatch.setattr("voicenotes.recorder.repair_wav", lambda session_path: True)
+    monkeypatch.setattr("voicenotes.recorder.create_audio_preview", lambda session_path: True)
     monkeypatch.setattr("voicenotes.queue.enqueue_session", lambda paths, session_path: p.run / "queue" / "item.json")
     monkeypatch.setattr("voicenotes.queue.try_spawn_worker", lambda paths: True)
 
@@ -70,6 +74,7 @@ def test_stop_waits_for_exit_after_sigkill_before_repair(tmp_path, monkeypatch):
     monkeypatch.setattr("os.kill", lambda pid, sig: events.append(("signal", sig)))
     monkeypatch.setattr("voicenotes.recorder._wait_pid_exit", lambda pid, timeout: events.append(("wait", timeout)) or next(waits))
     monkeypatch.setattr("voicenotes.recorder.repair_wav", lambda session_path: events.append(("repair", session_path)) or True)
+    monkeypatch.setattr("voicenotes.recorder.create_audio_preview", lambda session_path: events.append(("preview", session_path)) or True)
     monkeypatch.setattr("voicenotes.queue.enqueue_session", lambda paths, session_path: p.run / "queue" / "item.json")
     monkeypatch.setattr("voicenotes.queue.try_spawn_worker", lambda paths: True)
 
@@ -83,6 +88,7 @@ def test_stop_waits_for_exit_after_sigkill_before_repair(tmp_path, monkeypatch):
         ("signal", signal.SIGKILL),
         ("wait", 1),
         ("repair", session),
+        ("preview", session),
     ]
 
 

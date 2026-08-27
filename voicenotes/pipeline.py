@@ -11,7 +11,7 @@ from .state import atomic_write_json, atomic_write_text, clear_last_error, notif
 
 
 WHISPER_REPO_ID = "mlx-community/whisper-large-v3-mlx"
-PROMPT_VERSION = "2026-08-27-v1"
+PROMPT_VERSION = "2026-08-28-v2"
 AUDIO_MIN_BYTES = 4096
 TRANSCRIPT_MIN_CHARACTERS = 1
 
@@ -29,6 +29,13 @@ from one language into the other — preserve the speaker's original language
 choice exactly as spoken. Do NOT summarize, shorten, or omit any content.
 Do NOT normalize Chinese script (leave Simplified/Traditional as transcribed).
 
+Your default behavior is to leave text unchanged. Only edit words when there is
+clear contextual evidence of an ASR mistake. Language choice is evidence: if
+the raw transcript contains English words, keep them in English; if it contains
+Chinese characters, keep them in Chinese.
+Never replace "Testing, testing, one, two, three" with "测试，测试，一，二，三" or any other translation.
+When uncertain, keep the raw transcript exactly as written.
+
 Output only the corrected transcript, preserving original paragraph structure.
 
 Transcript:
@@ -38,6 +45,7 @@ Transcript:
 SUMMARY_PROMPT = """You are summarizing a cleaned transcript of a recording that may mix English
 and Mandarin Chinese. Do not translate or normalize the language — preserve
 terms, names, and phrases exactly as they appear in the transcript.
+Language choice is locked to the transcript: if the transcript says "Testing, testing, one, two, three", the summary must not render it as "测试，测试，一，二，三".
 
 Produce a Markdown summary with exactly these sections, in this order:
 

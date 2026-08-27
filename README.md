@@ -95,6 +95,7 @@ Sessions are written as flat folders:
 ~/VoiceNotes/
   2026-08-27_143012/
     audio.wav
+    audio.m4a
     ffmpeg.log
     transcript_raw.md
     transcript_clean.md
@@ -103,6 +104,8 @@ Sessions are written as flat folders:
     error.log
     session.json
 ```
+
+`audio.wav` is the canonical recording used for transcription because PCM WAV is robust if recording is interrupted. `audio.m4a` is a best-effort listening copy for Finder, QuickTime, and other macOS apps.
 
 `summary.md` contains exactly:
 

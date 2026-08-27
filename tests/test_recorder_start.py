@@ -98,7 +98,9 @@ def test_start_recording_writes_runtime_error_when_device_resolution_fails(tmp_p
 
 def test_record_test_uses_shared_device_resolution_without_state_file(tmp_path, monkeypatch):
     launched = {}
+    previews = []
     monkeypatch.setattr("voicenotes.recorder.list_audio_devices", lambda: ["MacBook Pro Microphone"])
+    monkeypatch.setattr("voicenotes.recorder.create_audio_preview", lambda session_path: previews.append(session_path) or True)
 
     def fake_run(args, stderr, check, timeout):
         launched["args"] = args
@@ -114,5 +116,6 @@ def test_record_test_uses_shared_device_resolution_without_state_file(tmp_path, 
     assert "3" in launched["args"]
     assert launched["timeout"] == 15
     assert launched["stderr_name"] == "ffmpeg.log"
+    assert previews == [session]
     assert not (tmp_path / "run" / "current-recording.json").exists()
     assert session.name.startswith("record-test_")
