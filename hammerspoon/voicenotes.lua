@@ -79,6 +79,10 @@ local function menuItems()
         menubar:delete()
         menubar = nil
       end
+      local app = hs.application.get("Hammerspoon")
+      if app then
+        app:kill()
+      end
     end},
   }
 end
