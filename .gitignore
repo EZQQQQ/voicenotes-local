@@ -11,6 +11,7 @@ fixtures/
 **/transcript_raw.md
 **/transcript_clean.md
 **/summary.md
+**/summary.raw.md
 **/session.json
 **/pipeline.log
 **/error.log

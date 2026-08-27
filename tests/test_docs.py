@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 
 def test_readme_covers_required_user_topics():
@@ -30,19 +31,19 @@ def test_license_is_mit():
 
 
 def test_gitignore_protects_session_artifacts_without_ignoring_package():
-    ignore = Path(".gitignore").read_text(encoding="utf-8")
-
-    assert "VoiceNotes/" not in ignore
     for artifact in [
-        "**/transcript_raw.md",
-        "**/transcript_clean.md",
-        "**/summary.md",
-        "**/session.json",
-        "**/pipeline.log",
-        "**/error.log",
-        "**/ffmpeg.log",
+        "VoiceNotes/2026-08-27_143012/transcript_raw.md",
+        "VoiceNotes/2026-08-27_143012/transcript_clean.md",
+        "VoiceNotes/2026-08-27_143012/summary.md",
+        "VoiceNotes/2026-08-27_143012/summary.raw.md",
+        "VoiceNotes/2026-08-27_143012/session.json",
+        "VoiceNotes/2026-08-27_143012/pipeline.log",
+        "VoiceNotes/2026-08-27_143012/error.log",
+        "VoiceNotes/2026-08-27_143012/ffmpeg.log",
     ]:
-        assert artifact in ignore
+        assert subprocess.run(["git", "check-ignore", "--no-index", artifact], check=False).returncode == 0
+
+    assert subprocess.run(["git", "check-ignore", "--no-index", "voicenotes/cli.py"], check=False).returncode == 1
 
 
 def test_smoke_test_uses_record_test_and_validates_summary_headings():
