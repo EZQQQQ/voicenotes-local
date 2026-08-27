@@ -42,7 +42,7 @@ def _require_homebrew_python_311() -> None:
 def _require_model_files(paths: Paths) -> None:
     model_dir = whisper_model_dir(paths)
     has_config = (model_dir / "config.json").is_file()
-    has_weights = any(model_dir.glob("*.safetensors"))
+    has_weights = (model_dir / "weights.npz").is_file()
     _require(model_dir.is_dir() and has_config and has_weights, f"incomplete or missing {model_dir}")
 
 
