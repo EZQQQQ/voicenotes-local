@@ -1917,7 +1917,7 @@ APP_DIR="$HOME/.voicenotes/app"
 VENV_DIR="$HOME/.voicenotes/venv"
 CONFIG_DIR="$HOME/.voicenotes"
 CONFIG_FILE="$CONFIG_DIR/config.toml"
-REPO_URL="${VOICENOTES_REPO_URL:-https://github.com/YOUR_GITHUB_USERNAME/voicenotes-local.git}"
+REPO_URL="${VOICENOTES_REPO_URL:-https://github.com/ezqqqq/voicenotes-local.git}"
 BREW_PREFIX="/opt/homebrew"
 WRAPPER_DIR="$BREW_PREFIX/bin"
 WRAPPER="$WRAPPER_DIR/voicenotes"
@@ -2069,7 +2069,7 @@ def test_readme_covers_required_user_topics():
     readme = Path("README.md").read_text(encoding="utf-8")
 
     for text in [
-        "curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/voicenotes-local/main/install.sh | bash",
+        "curl -fsSL https://raw.githubusercontent.com/ezqqqq/voicenotes-local/main/install.sh | bash",
         "Microphone",
         "Accessibility",
         "Cmd+`",
@@ -2125,7 +2125,7 @@ Create `README.md` with these sections:
 - `Install` with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/voicenotes-local/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ezqqqq/voicenotes-local/main/install.sh | bash
 ```
 
 - `Permissions`: first launch Hammerspoon, grant Accessibility to Hammerspoon, grant Microphone to Hammerspoon, grant Microphone to Terminal for `record-test`.

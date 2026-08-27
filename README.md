@@ -19,7 +19,7 @@ The installer checks or installs the software dependencies. macOS permission pro
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/voicenotes-local/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ezqqqq/voicenotes-local/main/install.sh | bash
 ```
 
 For local testing before the public repo URL is final:

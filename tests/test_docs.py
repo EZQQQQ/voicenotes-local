@@ -6,7 +6,7 @@ def test_readme_covers_required_user_topics():
     readme = Path("README.md").read_text(encoding="utf-8")
 
     for text in [
-        "curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/voicenotes-local/main/install.sh | bash",
+        "curl -fsSL https://raw.githubusercontent.com/ezqqqq/voicenotes-local/main/install.sh | bash",
         "Microphone",
         "Accessibility",
         "Cmd+`",

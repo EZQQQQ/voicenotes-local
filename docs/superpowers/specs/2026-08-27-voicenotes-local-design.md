@@ -377,7 +377,7 @@ The repo includes `scripts/smoke-test.sh`. It uses `voicenotes record-test`, val
 `install.sh` is the public curl-pipe entrypoint:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/voicenotes-local/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ezqqqq/voicenotes-local/main/install.sh | bash
 ```
 
 The installer source URL is configurable with `VOICENOTES_REPO_URL`. This supports local testing before the public repo exists:
