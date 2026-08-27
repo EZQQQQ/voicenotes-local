@@ -12,6 +12,7 @@ def test_hammerspoon_config_uses_cli_for_config_status_and_toggle():
     assert "Stop Recording" in lua
     assert "Open VoiceNotes Folder" in lua
     assert "Quit" in lua
+    assert "hotkey:disable()" in lua
     assert "hs.pathwatcher.new" in lua
     assert "mkdir -p ~/.voicenotes/run" in lua
     assert "~/.voicenotes/run" in lua

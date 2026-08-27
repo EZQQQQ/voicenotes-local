@@ -2,6 +2,7 @@ local M = {}
 
 local menubar = hs.menubar.new()
 local watcher = nil
+local hotkey = nil
 
 local function run(command)
   local output, status = hs.execute(command, true)
@@ -70,6 +71,10 @@ local function menuItems()
         watcher:stop()
         watcher = nil
       end
+      if hotkey then
+        hotkey:disable()
+        hotkey = nil
+      end
       if menubar then
         menubar:delete()
         menubar = nil
@@ -93,7 +98,7 @@ function M.start()
     mods = config.hotkey.mods or mods
     key = config.hotkey.key or key
   end
-  hs.hotkey.bind(mods, key, M.toggle)
+  hotkey = hs.hotkey.bind(mods, key, M.toggle)
   menubar:setMenu(menuItems)
   refresh()
   watcher = hs.pathwatcher.new(os.getenv("HOME") .. "/.voicenotes/run", refresh)
