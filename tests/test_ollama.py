@@ -73,7 +73,7 @@ def test_generate_posts_non_streaming_payload(monkeypatch):
         "model": "qwen2.5:14b",
         "prompt": "Prompt text",
         "stream": False,
-        "options": {"temperature": 0.2},
+        "options": {"temperature": 0.2, "num_ctx": 8192},
         "keep_alive": "30s",
     }
     assert captured["timeout"] == 1800

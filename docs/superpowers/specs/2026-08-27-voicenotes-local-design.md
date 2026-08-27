@@ -334,12 +334,12 @@ Ollama calls use:
 {
   "model": "qwen2.5:14b",
   "stream": false,
-  "options": { "temperature": 0.2 },
+  "options": { "temperature": 0.2, "num_ctx": 8192 },
   "keep_alive": "30s"
 }
 ```
 
-Each Ollama call has a 30-minute timeout. The pipeline opens the Ollama app and waits for `localhost:11434` if the local API is not already running, then verifies the configured model is present via `/api/tags` before starting model-dependent work. Missing models fail with `ollama pull` instructions.
+Each Ollama call has a 30-minute timeout and requests an 8k context to keep memory use reasonable on 16GB Macs. The pipeline opens the Ollama app and waits for `localhost:11434` if the local API is not already running, then verifies the configured model is present via `/api/tags` before starting model-dependent work. Missing models fail with `ollama pull` instructions.
 
 ## Retry And Validation
 

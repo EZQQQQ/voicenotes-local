@@ -9,6 +9,7 @@ import urllib.request
 
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_TEMPERATURE = 0.2
+OLLAMA_CONTEXT_LENGTH = 8192
 OLLAMA_KEEP_ALIVE = "30s"
 OLLAMA_TIMEOUT_SECONDS = 1800
 OLLAMA_START_TIMEOUT_SECONDS = 60
@@ -46,7 +47,7 @@ def generate(model: str, prompt: str, timeout_seconds: int = OLLAMA_TIMEOUT_SECO
         "model": model,
         "prompt": prompt,
         "stream": False,
-        "options": {"temperature": OLLAMA_TEMPERATURE},
+        "options": {"temperature": OLLAMA_TEMPERATURE, "num_ctx": OLLAMA_CONTEXT_LENGTH},
         "keep_alive": OLLAMA_KEEP_ALIVE,
     }
     request = urllib.request.Request(
