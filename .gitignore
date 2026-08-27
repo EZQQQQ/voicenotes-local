@@ -5,3 +5,7 @@ venv/
 fixtures/
 *.pyc
 .superpowers/
+VoiceNotes/
+*.wav
+*.m4a
+*.mp3
