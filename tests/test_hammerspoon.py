@@ -7,6 +7,11 @@ def test_hammerspoon_config_uses_cli_for_config_status_and_toggle():
     assert "voicenotes config --json" in lua
     assert "voicenotes status --json" in lua
     assert "voicenotes toggle" in lua
+    assert "menubar:setMenu" in lua
+    assert "Start Recording" in lua
+    assert "Stop Recording" in lua
+    assert "Open VoiceNotes Folder" in lua
+    assert "Quit" in lua
     assert "hs.pathwatcher.new" in lua
     assert "mkdir -p ~/.voicenotes/run" in lua
     assert "~/.voicenotes/run" in lua

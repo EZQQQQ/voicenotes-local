@@ -40,6 +40,44 @@ local function refresh()
   setTitle(json("voicenotes status --json"))
 end
 
+local function outputRoot()
+  local config = json("voicenotes config --json")
+  if config and config.output_root then
+    return config.output_root
+  end
+  return os.getenv("HOME") .. "/VoiceNotes"
+end
+
+local function shellQuote(value)
+  return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+local function menuItems()
+  local status = json("voicenotes status --json")
+  local toggleTitle = "Start Recording"
+  if status and status.state_label == "recording" then
+    toggleTitle = "Stop Recording"
+  end
+
+  return {
+    {title = toggleTitle, fn = M.toggle},
+    {title = "Open VoiceNotes Folder", fn = function()
+      hs.execute("open -g " .. shellQuote(outputRoot()), true)
+    end},
+    {title = "-"},
+    {title = "Quit", fn = function()
+      if watcher then
+        watcher:stop()
+        watcher = nil
+      end
+      if menubar then
+        menubar:delete()
+        menubar = nil
+      end
+    end},
+  }
+end
+
 function M.toggle()
   hs.task.new("/bin/zsh", function()
     refresh()
@@ -56,6 +94,7 @@ function M.start()
     key = config.hotkey.key or key
   end
   hs.hotkey.bind(mods, key, M.toggle)
+  menubar:setMenu(menuItems)
   refresh()
   watcher = hs.pathwatcher.new(os.getenv("HOME") .. "/.voicenotes/run", refresh)
   watcher:start()
