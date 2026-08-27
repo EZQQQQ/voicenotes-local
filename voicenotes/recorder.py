@@ -214,5 +214,6 @@ def record_test(config: AppConfig, paths: Paths, duration_seconds: int = 10) -> 
             ["ffmpeg", "-y", "-f", "avfoundation", "-i", f":{device_index}", "-t", str(duration_seconds), "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", str(session / "audio.wav")],
             stderr=log_handle,
             check=True,
+            timeout=max(duration_seconds + 10, 15),
         )
     return session
