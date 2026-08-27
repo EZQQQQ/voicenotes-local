@@ -8,3 +8,10 @@ fixtures/
 *.wav
 *.m4a
 *.mp3
+**/transcript_raw.md
+**/transcript_clean.md
+**/summary.md
+**/session.json
+**/pipeline.log
+**/error.log
+**/ffmpeg.log

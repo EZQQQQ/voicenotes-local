@@ -29,6 +29,22 @@ def test_license_is_mit():
     assert "Permission is hereby granted" in license_text
 
 
+def test_gitignore_protects_session_artifacts_without_ignoring_package():
+    ignore = Path(".gitignore").read_text(encoding="utf-8")
+
+    assert "VoiceNotes/" not in ignore
+    for artifact in [
+        "**/transcript_raw.md",
+        "**/transcript_clean.md",
+        "**/summary.md",
+        "**/session.json",
+        "**/pipeline.log",
+        "**/error.log",
+        "**/ffmpeg.log",
+    ]:
+        assert artifact in ignore
+
+
 def test_smoke_test_uses_record_test_and_validates_summary_headings():
     script = Path("scripts/smoke-test.sh").read_text(encoding="utf-8")
 
