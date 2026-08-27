@@ -51,6 +51,7 @@ fi
 
 cat > "$WRAPPER" <<EOF
 #!/usr/bin/env bash
+export PYTHONPATH="$APP_DIR\${PYTHONPATH:+:\$PYTHONPATH}"
 exec "$VENV_DIR/bin/python" -m voicenotes "\$@"
 EOF
 chmod +x "$WRAPPER"

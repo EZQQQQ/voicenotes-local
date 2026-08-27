@@ -12,6 +12,7 @@ def test_install_script_has_required_idempotent_behaviors():
     assert "$CONFIG_DIR/run" in script
     assert '"$BREW_PREFIX/bin/python3.11" -m venv "$VENV_DIR"' in script
     assert '"$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"' in script
+    assert 'export PYTHONPATH="$APP_DIR\\${PYTHONPATH:+:\\$PYTHONPATH}"' in script
     assert "ollama pull" in script
     assert "download-whisper-model" in script
     assert 'require("voicenotes")' in script
