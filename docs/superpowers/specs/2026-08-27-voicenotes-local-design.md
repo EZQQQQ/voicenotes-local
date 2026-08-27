@@ -339,7 +339,7 @@ Ollama calls use:
 }
 ```
 
-Each Ollama call has a 30-minute timeout. The pipeline preflights the Ollama server and verifies the configured model is present via `/api/tags` before starting model-dependent work. Missing models fail with `ollama pull` instructions.
+Each Ollama call has a 30-minute timeout. The pipeline opens the Ollama app and waits for `localhost:11434` if the local API is not already running, then verifies the configured model is present via `/api/tags` before starting model-dependent work. Missing models fail with `ollama pull` instructions.
 
 ## Retry And Validation
 

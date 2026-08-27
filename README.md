@@ -67,6 +67,8 @@ key = "`"
 - `ollama_model`: local Ollama model used for cleanup and summarization.
 - `auto_open`: whether successful summaries open with `open -g`.
 
+VoiceNotes opens the Ollama app automatically during processing if the local API is not already running. The configured model still must be installed locally.
+
 ## Why Whisper Model Is Fixed And Ollama Model Is Configurable
 
 Whisper model is fixed to large-v3 because English/Mandarin code-switching accuracy is the central product requirement. Changing it is likely to degrade the core behavior.
