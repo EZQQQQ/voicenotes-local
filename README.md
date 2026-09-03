@@ -75,6 +75,12 @@ Whisper model is fixed to large-v3 because English/Mandarin code-switching accur
 
 Ollama model is configurable because different Macs have different memory budgets. The default is `qwen2.5:14b`; a 32GB Mac may choose a larger local model.
 
+## Scope: No Speaker Diarization
+
+VoiceNotes Local is built for my own small working meetings — usually me plus one or two senior engineers, sometimes a PM or QA, reviewing code, system design, or requirements. At that size, the transcript content alone is normally enough for the LLM summarizer to tell who's asking what and who's answering, without needing per-speaker labels. Diarization would add real setup cost for a use case where it isn't the bottleneck — a HuggingFace account, accepting gated model terms, an API token, and a `torch`/`pyannote.audio` dependency chain — so it's intentionally left out.
+
+If your use case does need diarization — larger meetings, ambiguous turn-taking, or transcripts where speaker attribution actually matters — [WhisperX](https://github.com/m-bain/whisperx) is the better project for that: it bundles diarization, forced word-level alignment, and batched inference in one pipeline. VoiceNotes Local stays smaller and Apple Silicon/MLX-focused instead.
+
 ## Commands
 
 ```bash
