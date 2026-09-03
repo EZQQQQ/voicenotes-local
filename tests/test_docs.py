@@ -51,8 +51,10 @@ def test_smoke_test_uses_record_test_and_validates_summary_headings():
 
     assert "voicenotes record-test" in script
     assert "voicenotes process" in script
-    assert "## Meeting Metadata" in script
-    assert "## Key Discussion Points" in script
-    assert "## Decisions Made" in script
-    assert "## Action Items" in script
-    assert "## Open Questions" in script
+    assert "## Summary" in script
+    assert "## Discussion by topic" in script
+    assert "## Feedback & critique" in script
+    assert "## Decisions" in script
+    assert "## Action items" in script
+    assert "## Blockers & open questions" in script
+    assert "## Next steps" in script

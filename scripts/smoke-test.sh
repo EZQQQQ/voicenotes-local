@@ -9,11 +9,13 @@ for file in audio.wav transcript_raw.md transcript_clean.md summary.md; do
 done
 
 for heading in \
-  "## Meeting Metadata" \
-  "## Key Discussion Points" \
-  "## Decisions Made" \
-  "## Action Items" \
-  "## Open Questions"; do
+  "## Summary" \
+  "## Discussion by topic" \
+  "## Feedback & critique" \
+  "## Decisions" \
+  "## Action items" \
+  "## Blockers & open questions" \
+  "## Next steps"; do
   grep -Fxq "$heading" "$SESSION/summary.md"
 done
 

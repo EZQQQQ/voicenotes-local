@@ -13,7 +13,7 @@ from .state import atomic_write_json, atomic_write_text, clear_last_error, notif
 
 
 WHISPER_REPO_ID = "mlx-community/whisper-large-v3-mlx"
-PROMPT_VERSION = "2026-08-28-v2"
+PROMPT_VERSION = "2026-09-03-v3"
 AUDIO_MIN_BYTES = 4096
 TRANSCRIPT_MIN_CHARACTERS = 1
 
@@ -49,25 +49,43 @@ and Mandarin Chinese. Do not translate or normalize the language — preserve
 terms, names, and phrases exactly as they appear in the transcript.
 Language choice is locked to the transcript: if the transcript says "Testing, testing, one, two, three", the summary must not render it as "测试，测试，一，二，三".
 
-Produce a Markdown summary with exactly these sections, in this order:
+Produce a Markdown summary with exactly these sections, in this order. Only
+include what is explicitly stated or clearly inferable from the transcript —
+do not invent a title, date, attendees, or content; write "not specified" /
+"none noted" instead.
 
-## Meeting Metadata
-Date, objective, and attendee list. Only include what is explicitly stated
-or clearly inferable from the transcript — do not invent attendees or an
-objective if the recording doesn't state them; note "not specified" instead.
+# Meeting title
+A short title inferred from the discussion, followed by a line with the date
+(if stated) and participant names (if stated), separated by " · ".
 
-## Key Discussion Points
-Main topics, ordered chronologically or by relevance.
+## Summary
+2-5 bullets: the main discussion points and overall context.
 
-## Decisions Made
+## Discussion by topic
+One "### Topic name" subsection per distinct topic discussed, in the order
+raised. Under each, a few bullets on what was covered and any key details
+(facts, metrics, requirements, examples).
+
+## Feedback & critique
+Points raised about the work being reviewed — critique, suggestions, or
+advice given, and by whom if clear. This is distinct from confirmed
+Decisions below: capture guidance and opinions even if nothing was decided.
+
+## Decisions
 A clear log of confirmed agreements only — not proposals or open debate.
 
-## Action Items
+## Action items
 A checkable list (- [ ] task). Include owner and deadline where stated;
 write "unassigned" / "no deadline given" where not stated.
 
-## Open Questions
-Unresolved issues or blockers requiring follow-up.
+## Blockers & open questions
+### Blockers
+Issues blocking progress and any next step discussed.
+### Open questions
+Unresolved questions requiring follow-up.
+
+## Next steps
+Planned follow-ups, milestones, or future discussions.
 
 Transcript:
 {transcript_clean}

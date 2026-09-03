@@ -111,11 +111,15 @@ Sessions are written as flat folders:
 
 `summary.md` contains exactly:
 
-- `## Meeting Metadata`
-- `## Key Discussion Points`
-- `## Decisions Made`
-- `## Action Items`
-- `## Open Questions`
+- `## Summary`
+- `## Discussion by topic` (one `### Topic` subsection per topic covered)
+- `## Feedback & critique`
+- `## Decisions`
+- `## Action items`
+- `## Blockers & open questions` (`### Blockers` and `### Open questions` subsections)
+- `## Next steps`
+
+An optional `# Meeting title` line, followed by a date/participants line, may precede these sections.
 
 ## Uninstall
 
