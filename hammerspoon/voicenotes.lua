@@ -16,7 +16,17 @@ local function json(command)
   if not output then
     return nil
   end
-  return hs.json.decode(output)
+  -- hs.execute(cmd, true) runs a login shell, which on some machines
+  -- prints banner/session-restore text before the command's own output.
+  local jsonStart = output:find("[{[]")
+  if not jsonStart then
+    return nil
+  end
+  local ok, decoded = pcall(hs.json.decode, output:sub(jsonStart))
+  if not ok then
+    return nil
+  end
+  return decoded
 end
 
 local function setTitle(status)
