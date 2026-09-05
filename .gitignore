@@ -5,6 +5,7 @@ venv/
 fixtures/
 *.pyc
 .superpowers/
+.worktrees/
 *.wav
 *.m4a
 *.mp3
