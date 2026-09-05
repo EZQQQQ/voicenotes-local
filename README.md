@@ -1,54 +1,52 @@
 # VoiceNotes Local
 
-## What It Does
-
-VoiceNotes Local records spoken notes from a global Hammerspoon hotkey, transcribes them locally with Whisper large-v3, cleans likely ASR mistakes with a local Ollama model, and writes a structured Markdown summary. It is a personal macOS tool with no server, account, billing, or cloud inference.
+A local macOS voice notes tool. Press one hotkey to record, press it again to stop, then get a Markdown summary in `~/VoiceNotes`.
 
 ## Requirements
 
-- Apple Silicon Mac.
-- 16GB unified memory or more.
-- Homebrew.
-- Hammerspoon.
-- ffmpeg.
-- Ollama.
-- Python 3.11+.
-
-The installer checks or installs the software dependencies. macOS permission prompts still require your approval.
+- Apple Silicon Mac with 16GB memory or more
+- Homebrew
+- GitHub CLI access to this private repo
 
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ezqqqq/voicenotes-local/main/install.sh | bash
+brew install gh
+gh auth login
+gh auth setup-git
+tmp="$(mktemp -d)" && gh repo clone ezqqqq/voicenotes-local "$tmp/voicenotes-local" && VOICENOTES_REPO_URL="https://github.com/ezqqqq/voicenotes-local.git" "$tmp/voicenotes-local/install.sh"
 ```
 
-For local testing before the public repo URL is final:
-
-```bash
-VOICENOTES_REPO_URL=/path/to/local/repo ./install.sh
-```
-
-The installer downloads local models. The combined download is roughly 12GB.
+The installer sets up ffmpeg, Hammerspoon, Ollama, Python dependencies, and local models. Model downloads are about 12GB.
 
 ## Permissions
 
-Launch Hammerspoon once after install. Then grant:
+Open Hammerspoon once after install. In System Settings, grant:
 
-- Accessibility to Hammerspoon.
-- Microphone to Hammerspoon for hotkey-triggered recording.
-- Microphone to Terminal if you use `voicenotes record-test` from a shell.
-
-Check these in System Settings > Privacy & Security > Accessibility and System Settings > Privacy & Security > Microphone.
+- Accessibility
+- Microphone
 
 ## Hotkey
 
-The default hotkey is `Cmd+``. On a second Mac, this may conflict with the macOS shortcut at System Settings > Keyboard > Keyboard Shortcuts > Keyboard > Move focus to next window. Clear or change that shortcut if VoiceNotes does not receive the keypress.
+```text
+Cmd+`
+```
 
-The hotkey is configurable in `~/.voicenotes/config.toml`. A Hyper-key alternative is recommended if `Cmd+`` is still useful for window focus on that Mac.
+If it does not trigger, clear this macOS shortcut:
+
+```text
+System Settings > Keyboard > Keyboard Shortcuts > Keyboard > Move focus to next window
+```
+
+Keep Hammerspoon running. The hotkey cannot work when Hammerspoon is closed.
+
+## Menu Bar
+
+The `VN` menu has Start or Stop, Open VoiceNotes Folder, and Quit. Quit hides `VN` but keeps Hammerspoon running so the hotkey can still work.
 
 ## Config
 
-User config lives at `~/.voicenotes/config.toml` and exposes only these fields:
+Edit `~/.voicenotes/config.toml`:
 
 ```toml
 output_root = "~/VoiceNotes"
@@ -61,25 +59,9 @@ mods = ["cmd"]
 key = "`"
 ```
 
-- `output_root`: where session folders are written.
-- `hotkey`: Hammerspoon modifiers and key.
-- `audio_device`: `default` for avfoundation index 0 at record time, or an exact device name from `voicenotes devices`.
-- `ollama_model`: local Ollama model used for cleanup and summarization.
-- `auto_open`: whether successful summaries open with `open -g`.
+Use `voicenotes devices` to find an exact `audio_device` name. `auto_open` controls whether `summary.md` opens after processing.
 
-VoiceNotes opens the Ollama app automatically during processing if the local API is not already running. The configured model still must be installed locally.
-
-## Why Whisper Model Is Fixed And Ollama Model Is Configurable
-
-Whisper model is fixed to large-v3 because English/Mandarin code-switching accuracy is the central product requirement. Changing it is likely to degrade the core behavior.
-
-Ollama model is configurable because different Macs have different memory budgets. The default is `qwen2.5:14b`; a 32GB Mac may choose a larger local model.
-
-## Scope: No Speaker Diarization
-
-VoiceNotes Local is built for my own small working meetings — usually me plus one or two senior engineers, sometimes a PM or QA, reviewing code, system design, or requirements. At that size, the transcript content alone is normally enough for the LLM summarizer to tell who's asking what and who's answering, without needing per-speaker labels. Diarization would add real setup cost for a use case where it isn't the bottleneck — a HuggingFace account, accepting gated model terms, an API token, and a `torch`/`pyannote.audio` dependency chain — so it's intentionally left out.
-
-If your use case does need diarization — larger meetings, ambiguous turn-taking, or transcripts where speaker attribution actually matters — [WhisperX](https://github.com/m-bain/whisperx) is the better project for that: it bundles diarization, forced word-level alignment, and batched inference in one pipeline. VoiceNotes Local stays smaller and Apple Silicon/MLX-focused instead.
+Whisper stays fixed to large-v3 for English and Mandarin code-switching accuracy. The Ollama model is configurable for different Mac memory sizes. VoiceNotes opens Ollama automatically during processing if needed.
 
 ## Commands
 
@@ -91,13 +73,9 @@ voicenotes retry ~/VoiceNotes/2026-08-27_143012
 voicenotes record-test --duration 10
 ```
 
-Use `voicenotes retry <session>` when transcription, cleanup, or summarization fails after some artifacts were already written. Retry skips valid existing artifacts and resumes from the first missing or invalid one.
-
-Run `voicenotes doctor` after install to check dependencies, local models, Hammerspoon integration, audio devices, and microphone behavior.
+Use `voicenotes doctor` after install. Use `voicenotes retry <session>` after a failed note.
 
 ## Output
-
-Sessions are written as flat folders:
 
 ```text
 ~/VoiceNotes/
@@ -108,41 +86,16 @@ Sessions are written as flat folders:
     transcript_raw.md
     transcript_clean.md
     summary.md
-    pipeline.log
-    error.log
-    session.json
 ```
 
-`audio.wav` is the canonical recording used for transcription because PCM WAV is robust if recording is interrupted. `audio.m4a` is a best-effort listening copy for Finder, QuickTime, and other macOS apps.
+`audio.wav` is used for transcription. `audio.m4a` is for playback.
 
-`summary.md` contains exactly:
+`summary.md` contains:
 
 - `## Summary`
-- `## Discussion by topic` (one `### Topic` subsection per topic covered)
+- `## Discussion by topic`
 - `## Feedback & critique`
 - `## Decisions`
 - `## Action items`
-- `## Blockers & open questions` (`### Blockers` and `### Open questions` subsections)
+- `## Blockers & open questions`
 - `## Next steps`
-
-An optional `# Meeting title` line, followed by a date/participants line, may precede these sections.
-
-## Uninstall
-
-From the repo checkout:
-
-```bash
-./uninstall.sh
-```
-
-The uninstaller removes the VoiceNotes app files, runtime files, venv, command wrapper, and Hammerspoon integration. It does not remove Homebrew dependencies, Ollama models, or `~/VoiceNotes`. To remove the default Ollama model later, run:
-
-```bash
-ollama rm qwen2.5:14b
-```
-
-## Privacy
-
-After initial model downloads, recording, transcription, cleanup, and summarization are local. Audio and text are not sent to a hosted VoiceNotes service because there is no service.
-
-V1 does not actively sandbox network access. The privacy design is based on local tools and local model execution.
