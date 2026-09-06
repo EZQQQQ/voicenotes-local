@@ -90,6 +90,8 @@ Use `voicenotes doctor` after install. Use `voicenotes retry <session>` after a 
 
 `audio.wav` is used for transcription. `audio.m4a` is for playback.
 
+Long or noisy recordings can lose details during cleanup and summarization, even when processing succeeds. Verify important details against `transcript_raw.md` and the recording.
+
 `summary.md` contains:
 
 - `## Summary`
