@@ -6,7 +6,7 @@ def test_readme_covers_required_user_topics():
     readme = Path("README.md").read_text(encoding="utf-8")
 
     for text in [
-        "curl -fsSL https://raw.githubusercontent.com/ezqqqq/voicenotes-local/main/install.sh | bash",
+        "gh repo clone ezqqqq/voicenotes-local",
         "Microphone",
         "Accessibility",
         "Cmd+`",
@@ -16,8 +16,7 @@ def test_readme_covers_required_user_topics():
         "auto_open",
         "voicenotes retry",
         "voicenotes doctor",
-        "uninstall.sh",
-        "Whisper model is fixed",
+        "Whisper stays fixed",
         "Ollama model is configurable",
     ]:
         assert text in readme
