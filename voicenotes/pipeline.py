@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import math
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -13,9 +15,39 @@ from .state import atomic_write_json, atomic_write_text, clear_last_error, notif
 
 
 WHISPER_REPO_ID = "mlx-community/whisper-large-v3-mlx"
-PROMPT_VERSION = "2026-09-03-v3"
+PROMPT_VERSION = "2026-09-07-cleanup-v1"
 AUDIO_MIN_BYTES = 4096
 TRANSCRIPT_MIN_CHARACTERS = 1
+CLEANUP_CHUNK_MAX_TOKENS = 1200
+CLEANUP_MAX_OUTPUT_TOKENS = 3500
+
+
+def estimate_tokens(text: str) -> int:
+    cjk_chars = sum(1 for ch in text if "一" <= ch <= "鿿")
+    other_chars = len(text) - cjk_chars
+    return cjk_chars + math.ceil(other_chars / 4)
+
+
+def chunk_paragraphs(paragraphs: list[str], max_tokens: int) -> list[list[str]]:
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    current_tokens = 0
+    separator_tokens = estimate_tokens("\n\n")
+    for paragraph in paragraphs:
+        paragraph_tokens = estimate_tokens(paragraph)
+        if paragraph_tokens > max_tokens:
+            raise ValueError(f"transcript paragraph exceeds chunk budget: {paragraph_tokens} > {max_tokens}")
+        added_tokens = paragraph_tokens + (separator_tokens if current else 0)
+        if current and current_tokens + added_tokens > max_tokens:
+            chunks.append(current)
+            current = []
+            current_tokens = 0
+            added_tokens = paragraph_tokens
+        current.append(paragraph)
+        current_tokens += added_tokens
+    if current:
+        chunks.append(current)
+    return chunks
 
 CLEANUP_PROMPT = """You are a bilingual (English / Mandarin Chinese) transcript proofreader.
 
@@ -39,6 +71,10 @@ Never replace "Testing, testing, one, two, three" with "测试，测试，一，
 When uncertain, keep the raw transcript exactly as written.
 
 Output only the corrected transcript, preserving original paragraph structure.
+Copy every input timestamp occurrence exactly once, unchanged and in the same order.
+Do not merge, split, add, remove, or reorder paragraphs.
+Begin your output with the first input timestamp.
+Do not include commentary, headings, code fences, or a preamble.
 
 Transcript:
 {transcript_raw}
@@ -129,6 +165,119 @@ def write_raw_transcript(session: Path, segments: list[dict[str, object]]) -> No
     atomic_write_text(session / "transcript_raw.md", "\n\n".join(paragraphs) + "\n")
 
 
+FILLER_TOKENS = {"嗯", "呃", "啊", "嗯嗯", "呃呃"}
+FILLER_RUN_MIN_SEGMENTS = 3
+FILLER_MAX_GAP_SECONDS = 2
+TRANSCRIPT_PARAGRAPH = re.compile(
+    r"^\[(?P<start>\d{2}:\d{2}:\d{2}) - (?P<end>\d{2}:\d{2}:\d{2})\](?: (?P<text>.*))?$"
+)
+
+
+def _timestamp_seconds(value: str) -> int:
+    hours, minutes, seconds = (int(part) for part in value.split(":"))
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def _parse_timestamped_paragraph(paragraph: str) -> tuple[str, str, str] | None:
+    match = TRANSCRIPT_PARAGRAPH.fullmatch(paragraph)
+    if match is None:
+        return None
+    return match.group("start"), match.group("end"), match.group("text") or ""
+
+
+def _normalized_filler(text: str) -> str | None:
+    stripped = text.strip().strip("。.!?！？,，")
+    return stripped if stripped in FILLER_TOKENS else None
+
+
+def collapse_filler_runs(paragraphs: list[str]) -> list[str]:
+    collapsed: list[str] = []
+    run: list[tuple[str, str, str, str]] = []
+    run_token: str | None = None
+
+    def flush_run() -> None:
+        nonlocal run_token
+        if len(run) < FILLER_RUN_MIN_SEGMENTS:
+            collapsed.extend(item[0] for item in run)
+        elif run:
+            collapsed.append(f"[{run[0][1]} - {run[-1][2]}] {run[0][3].strip()}")
+        run.clear()
+        run_token = None
+
+    for paragraph in paragraphs:
+        parsed = _parse_timestamped_paragraph(paragraph)
+        token = _normalized_filler(parsed[2]) if parsed is not None else None
+        if parsed is None or token is None:
+            flush_run()
+            collapsed.append(paragraph)
+            continue
+        start, end, text = parsed
+        gap = _timestamp_seconds(start) - _timestamp_seconds(run[-1][2]) if run else 0
+        if run and (token != run_token or gap > FILLER_MAX_GAP_SECONDS):
+            flush_run()
+        if not run:
+            run_token = token
+        run.append((paragraph, start, end, text))
+    flush_run()
+    return collapsed
+
+
+class _CleanupValidationError(RuntimeError):
+    pass
+
+
+def _validate_cleaned_chunk(source: str, cleaned: str) -> None:
+    source_paragraphs = source.strip().split("\n\n")
+    cleaned_paragraphs = cleaned.strip().split("\n\n")
+    source_parts = [_parse_timestamped_paragraph(paragraph) for paragraph in source_paragraphs]
+    cleaned_parts = [_parse_timestamped_paragraph(paragraph) for paragraph in cleaned_paragraphs]
+    source_timestamps = [(part[0], part[1]) for part in source_parts if part is not None]
+    cleaned_timestamps = [(part[0], part[1]) for part in cleaned_parts if part is not None]
+    if len(source_timestamps) != len(source_paragraphs) or source_timestamps != cleaned_timestamps:
+        raise _CleanupValidationError("clean transcript validation failed: timestamps missing or reordered")
+    if len(cleaned_parts) != len(source_parts) or any(part is None for part in cleaned_parts):
+        raise _CleanupValidationError("clean transcript validation failed: timestamps missing or reordered")
+    for source_part, cleaned_part in zip(source_parts, cleaned_parts):
+        if source_part is not None and cleaned_part is not None and source_part[2].strip() and not cleaned_part[2].strip():
+            raise _CleanupValidationError("clean transcript validation failed: segment content missing")
+        if source_part is not None and cleaned_part is not None:
+            source_length = len(re.sub(r"\s", "", source_part[2]))
+            cleaned_length = len(re.sub(r"\s", "", cleaned_part[2]))
+            if source_length >= 40 and cleaned_length < source_length * 0.8:
+                raise _CleanupValidationError("clean transcript validation failed: segment content shortened")
+
+
+def _clean_chunk(model: str, paragraphs: list[str]) -> list[str]:
+    source = "\n\n".join(paragraphs)
+    cleaned = ollama.generate(model, CLEANUP_PROMPT.format(transcript_raw=source), max_output_tokens=CLEANUP_MAX_OUTPUT_TOKENS).strip()
+    try:
+        _validate_cleaned_chunk(source, cleaned)
+    except _CleanupValidationError:
+        if len(paragraphs) == 1:
+            raise
+        midpoint = len(paragraphs) // 2
+        return _clean_chunk(model, paragraphs[:midpoint]) + _clean_chunk(model, paragraphs[midpoint:])
+    return cleaned.split("\n\n")
+
+
+def clean_transcript(model: str, raw_text: str) -> str:
+    if not raw_text.strip():
+        raise RuntimeError("raw transcript validation failed")
+    paragraphs = collapse_filler_runs(raw_text.strip().split("\n\n"))
+    blank_paragraphs: dict[int, str] = {}
+    cleanup_paragraphs: list[str] = []
+    for index, paragraph in enumerate(paragraphs):
+        parsed = _parse_timestamped_paragraph(paragraph)
+        if parsed is not None and not parsed[2].strip():
+            blank_paragraphs[index] = paragraph
+        else:
+            cleanup_paragraphs.append(paragraph)
+    chunks = chunk_paragraphs(cleanup_paragraphs, CLEANUP_CHUNK_MAX_TOKENS)
+    cleaned_paragraphs = [paragraph for chunk in chunks for paragraph in _clean_chunk(model, chunk)]
+    cleaned_iter = iter(cleaned_paragraphs)
+    return "\n\n".join(blank_paragraphs[index] if index in blank_paragraphs else next(cleaned_iter) for index in range(len(paragraphs)))
+
+
 def _valid_text(path: Path) -> bool:
     try:
         return path.exists() and len(path.read_text(encoding="utf-8").strip()) >= TRANSCRIPT_MIN_CHARACTERS
@@ -209,25 +358,32 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
         ollama.ensure_model_available(config.ollama_model)
 
         raw_path = session / "transcript_raw.md"
+        clean_path = session / "transcript_clean.md"
+        summary_path = session / "summary.md"
         needs_raw = not status["transcript_raw"]
         needs_clean = needs_raw or not status["transcript_clean"]
         needs_summary = needs_clean or not status["summary"]
         if needs_raw:
-            write_raw_transcript(session, transcribe_audio(session / "audio.wav", paths))
+            segments = transcribe_audio(session / "audio.wav", paths)
+            clean_path.unlink(missing_ok=True)
+            summary_path.unlink(missing_ok=True)
+            (session / "summary.raw.md").unlink(missing_ok=True)
+            write_raw_transcript(session, segments)
             if not _valid_text(raw_path):
                 raise RuntimeError("raw transcript validation failed")
 
-        clean_path = session / "transcript_clean.md"
         if needs_clean:
             raw_transcript = raw_path.read_text(encoding="utf-8")
-            atomic_write_text(clean_path, ollama.generate(config.ollama_model, CLEANUP_PROMPT.format(transcript_raw=raw_transcript)) + "\n")
+            cleaned_output = clean_transcript(config.ollama_model, raw_transcript)
+            summary_path.unlink(missing_ok=True)
+            (session / "summary.raw.md").unlink(missing_ok=True)
+            atomic_write_text(clean_path, cleaned_output + "\n")
             if not _valid_text(clean_path):
                 raise RuntimeError("clean transcript validation failed")
 
-        summary_path = session / "summary.md"
         if needs_summary:
-            clean_transcript = clean_path.read_text(encoding="utf-8")
-            generated = ollama.generate(config.ollama_model, SUMMARY_PROMPT.format(transcript_clean=clean_transcript))
+            cleaned_transcript_text = clean_path.read_text(encoding="utf-8")
+            generated = ollama.generate(config.ollama_model, SUMMARY_PROMPT.format(transcript_clean=cleaned_transcript_text))
             atomic_write_text(summary_path, f"<!-- Generated by VoiceNotes from session {session.name} -->\n\n{generated.strip()}\n")
             summary_valid, reason = validate_summary(summary_path)
             if not summary_valid:
@@ -246,5 +402,9 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
         raise
 
 
-def retry_session(session: Path, config: AppConfig, paths: Paths) -> None:
+def retry_session(session: Path, config: AppConfig, paths: Paths, from_clean: bool = False) -> None:
+    if from_clean:
+        (session / "transcript_clean.md").unlink(missing_ok=True)
+        (session / "summary.md").unlink(missing_ok=True)
+        (session / "summary.raw.md").unlink(missing_ok=True)
     process_session(session, config, paths)

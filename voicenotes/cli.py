@@ -31,6 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     process_parser.add_argument("session")
     retry_parser = subparsers.add_parser("retry")
     retry_parser.add_argument("session")
+    retry_parser.add_argument("--from-clean", action="store_true")
     record_test_parser = subparsers.add_parser("record-test")
     record_test_parser.add_argument("--duration", type=int, default=10)
 
@@ -84,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "process":
                 process_session(session, load_config(), paths)
             else:
-                retry_session(session, load_config(), paths)
+                retry_session(session, load_config(), paths, from_clean=args.from_clean)
         except RuntimeError as error:
             print(error, file=sys.stderr)
             return 1

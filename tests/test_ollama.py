@@ -61,7 +61,7 @@ def test_generate_posts_non_streaming_payload(monkeypatch):
         captured["url"] = request.full_url
         captured["payload"] = json.loads(request.data.decode("utf-8"))
         captured["timeout"] = timeout
-        return FakeResponse({"response": "clean transcript"})
+        return FakeResponse({"response": "clean transcript", "done": True, "done_reason": "stop"})
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 

@@ -106,10 +106,30 @@ def test_retry_command_returns_one_for_pipeline_failure(tmp_path, monkeypatch, c
     monkeypatch.setattr("voicenotes.cli.acquire_pipeline_lock", lambda paths: True)
     monkeypatch.setattr("voicenotes.cli.release_pipeline_lock", lambda paths: None)
     monkeypatch.setattr("voicenotes.cli.try_spawn_worker", lambda paths: False)
-    monkeypatch.setattr("voicenotes.cli.retry_session", lambda path, config, paths: (_ for _ in ()).throw(RuntimeError("pipeline failed")))
+    monkeypatch.setattr("voicenotes.cli.retry_session", lambda path, config, paths, from_clean=False: (_ for _ in ()).throw(RuntimeError("pipeline failed")))
 
     assert main(["retry", str(session)]) == 1
     assert "pipeline failed" in capsys.readouterr().err
+
+
+def test_retry_from_clean_passes_explicit_regeneration_flag(tmp_path, monkeypatch):
+    session = tmp_path / "session"
+    run = tmp_path / "run"
+    (run / "queue").mkdir(parents=True)
+    worker_paths = type("WorkerPaths", (), {"run": run})()
+    captured = {}
+    monkeypatch.setattr("voicenotes.cli.acquire_pipeline_lock", lambda paths: True)
+    monkeypatch.setattr("voicenotes.cli.release_pipeline_lock", lambda paths: None)
+    monkeypatch.setattr("voicenotes.cli.default_paths", lambda: worker_paths)
+    monkeypatch.setattr("voicenotes.cli.load_config", lambda: object())
+
+    def fake_retry(path, app_config, app_paths, from_clean=False):
+        captured["path"] = path
+        captured["from_clean"] = from_clean
+
+    monkeypatch.setattr("voicenotes.cli.retry_session", fake_retry)
+    assert main(["retry", str(session), "--from-clean"]) == 0
+    assert captured == {"path": session, "from_clean": True}
 
 
 def test_manual_pipeline_command_returns_one_when_worker_is_active(tmp_path, monkeypatch, capsys):

@@ -87,7 +87,7 @@ def test_prompts_preserve_raw_language_choice():
     cleanup = CLEANUP_PROMPT.format(transcript_raw="[00:00:00 - 00:00:03] Testing, testing, one, two, three.")
     summary = SUMMARY_PROMPT.format(transcript_clean="[00:00:00 - 00:00:03] Testing, testing, one, two, three.")
 
-    assert PROMPT_VERSION == "2026-09-03-v3"
+    assert PROMPT_VERSION == "2026-09-07-cleanup-v1"
     assert "Your default behavior is to leave text unchanged." in cleanup
     assert 'Never replace "Testing, testing, one, two, three" with "测试，测试，一，二，三"' in cleanup
     assert "When uncertain, keep the raw transcript exactly as written." in cleanup
@@ -112,7 +112,7 @@ def test_process_session_writes_all_artifacts(tmp_path, monkeypatch):
             summary_body("roadmap and 中文部分"),
         ]
     )
-    monkeypatch.setattr("voicenotes.ollama.generate", lambda model, prompt, timeout_seconds=1800: next(responses))
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda model, prompt, timeout_seconds=1800, **kwargs: next(responses))
     opened = []
     monkeypatch.setattr("subprocess.run", lambda args, check=False: opened.append(args))
 
@@ -131,7 +131,8 @@ def test_invalid_summary_is_saved_raw_and_fails(tmp_path, monkeypatch):
     (session / "audio.wav").write_bytes(b"RIFF" + b"0" * 10000)
     monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
     monkeypatch.setattr("voicenotes.pipeline.transcribe_audio", lambda audio, models: [{"start": 0, "end": 1, "text": "hello"}])
-    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: "Here is the summary\n\n## Meeting Metadata")
+    responses = iter(["[00:00:00 - 00:00:01] hello", "Here is the summary\n\n## Meeting Metadata"])
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: next(responses))
 
     with pytest.raises(RuntimeError, match="summary validation failed"):
         process_session(session, config(tmp_path), paths(tmp_path))
@@ -191,7 +192,7 @@ def test_retry_regenerates_downstream_artifacts_after_invalid_raw_transcript(tmp
     monkeypatch.setattr("voicenotes.pipeline.transcribe_audio", lambda audio, models: [{"start": 0, "end": 1, "text": "fresh raw"}])
     responses = iter(
         [
-            "fresh clean",
+            "[00:00:00 - 00:00:01] fresh clean",
             summary_body("fresh"),
         ]
     )
@@ -199,7 +200,27 @@ def test_retry_regenerates_downstream_artifacts_after_invalid_raw_transcript(tmp
 
     retry_session(session, config(tmp_path), paths(tmp_path))
 
-    assert (session / "transcript_clean.md").read_text(encoding="utf-8") == "fresh clean\n"
+    assert (session / "transcript_clean.md").read_text(encoding="utf-8") == "[00:00:00 - 00:00:01] fresh clean\n"
+    assert "- fresh" in (session / "summary.md").read_text(encoding="utf-8")
+
+
+def test_retry_from_clean_reuses_raw_and_regenerates_derived_artifacts(tmp_path, monkeypatch):
+    session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
+    session.mkdir(parents=True)
+    (session / "audio.wav").write_bytes(b"RIFF" + b"0" * 10000)
+    raw = "[00:00:00 - 00:00:01] preserved raw\n"
+    (session / "transcript_raw.md").write_text(raw, encoding="utf-8")
+    (session / "transcript_clean.md").write_text("[00:00:00 - 00:00:01] stale clean\n", encoding="utf-8")
+    (session / "summary.md").write_text(summary_body("stale"), encoding="utf-8")
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    monkeypatch.setattr("voicenotes.pipeline.transcribe_audio", lambda *args: pytest.fail("raw must be reused"))
+    responses = iter(["[00:00:00 - 00:00:01] fresh clean", summary_body("fresh")])
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: next(responses))
+
+    retry_session(session, config(tmp_path), paths(tmp_path), from_clean=True)
+
+    assert (session / "transcript_raw.md").read_text(encoding="utf-8") == raw
+    assert "fresh clean" in (session / "transcript_clean.md").read_text(encoding="utf-8")
     assert "- fresh" in (session / "summary.md").read_text(encoding="utf-8")
 
 

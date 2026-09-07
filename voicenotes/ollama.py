@@ -42,12 +42,15 @@ def ensure_model_available(model: str) -> None:
         raise RuntimeError(f"Ollama model missing. Run: ollama pull {model}")
 
 
-def generate(model: str, prompt: str, timeout_seconds: int = OLLAMA_TIMEOUT_SECONDS) -> str:
+def generate(model: str, prompt: str, timeout_seconds: int = OLLAMA_TIMEOUT_SECONDS, max_output_tokens: int | None = None) -> str:
+    options: dict[str, object] = {"temperature": OLLAMA_TEMPERATURE, "num_ctx": OLLAMA_CONTEXT_LENGTH}
+    if max_output_tokens is not None:
+        options["num_predict"] = max_output_tokens
     payload = {
         "model": model,
         "prompt": prompt,
         "stream": False,
-        "options": {"temperature": OLLAMA_TEMPERATURE, "num_ctx": OLLAMA_CONTEXT_LENGTH},
+        "options": options,
         "keep_alive": OLLAMA_KEEP_ALIVE,
     }
     request = urllib.request.Request(
@@ -58,4 +61,11 @@ def generate(model: str, prompt: str, timeout_seconds: int = OLLAMA_TIMEOUT_SECO
     )
     with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
         body = json.loads(response.read().decode("utf-8"))
-    return str(body.get("response", ""))
+    if body.get("done") is not True:
+        raise RuntimeError("Ollama generation did not complete")
+    if body.get("done_reason") == "length":
+        raise RuntimeError("Ollama generation stopped at its token limit")
+    generated = str(body.get("response", ""))
+    if not generated.strip():
+        raise RuntimeError("Ollama returned a blank response")
+    return generated

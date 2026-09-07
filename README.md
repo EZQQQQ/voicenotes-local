@@ -73,7 +73,7 @@ voicenotes retry ~/VoiceNotes/2026-08-27_143012
 voicenotes record-test --duration 10
 ```
 
-Use `voicenotes doctor` after install. Use `voicenotes retry <session>` after a failed note.
+Use `voicenotes doctor` after install. Use `voicenotes retry <session>` after a failed note; `--from-clean` regenerates cleanup and summary while keeping raw.
 
 ## Output
 
@@ -88,7 +88,7 @@ Use `voicenotes doctor` after install. Use `voicenotes retry <session>` after a 
     summary.md
 ```
 
-`audio.wav` is used for transcription. `audio.m4a` is for playback.
+`audio.wav` is used for transcription. `audio.m4a` is for playback. Cleanup uses bounded chunks and keeps raw unchanged.
 
 Long or noisy recordings can lose details during cleanup and summarization, even when processing succeeds. Verify important details against `transcript_raw.md` and the recording.
 
