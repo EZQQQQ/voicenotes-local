@@ -1,4 +1,6 @@
 import json
+import os
+import subprocess
 
 from voicenotes.config import Paths
 from voicenotes.state import (
@@ -212,7 +214,7 @@ def test_status_snapshot_reports_recording_processing_queue_and_error(tmp_path):
     queue = run / "queue"
     queue.mkdir(parents=True)
     (run / "current-recording.json").write_text('{"session_path": "/tmp/session"}', encoding="utf-8")
-    (run / "pipeline.lock").write_text('{"pid": 123}', encoding="utf-8")
+    (run / "pipeline.lock").write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
     (queue / "20260827T143012_session.json").write_text('{"session_path": "/tmp/queued"}', encoding="utf-8")
     (run / "last-error.txt").write_text("failed", encoding="utf-8")
 
@@ -238,3 +240,19 @@ def test_status_snapshot_prioritizes_runtime_error_over_retained_queue_item(tmp_
     snapshot = status_snapshot(Paths(tmp_path / ".voicenotes/app", run, run.parent / "config.toml", run.parent / "models", tmp_path / "VoiceNotes"))
 
     assert snapshot["state_label"] == "error"
+
+
+def test_status_snapshot_does_not_report_dead_worker_as_processing(tmp_path):
+    run = tmp_path / "run"
+    run.mkdir()
+    exited = subprocess.Popen(["true"])
+    exited.wait()
+    lock = run / "pipeline.lock"
+    content = json.dumps({"pid": exited.pid})
+    lock.write_text(content, encoding="utf-8")
+
+    snapshot = status_snapshot(Paths(tmp_path / "app", run, tmp_path / "config.toml", tmp_path / "models", tmp_path / "notes"))
+
+    assert snapshot["processing"] is False
+    assert snapshot["state_label"] == "idle"
+    assert lock.read_text(encoding="utf-8") == content

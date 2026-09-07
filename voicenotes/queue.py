@@ -41,6 +41,27 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
+def pipeline_lock_active(paths: Paths) -> bool:
+    lock = _lock_path(paths)
+    if lock in _LOCK_HANDLES:
+        return True
+    try:
+        with lock.open("r+", encoding="utf-8") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            try:
+                return _pid_alive(int(json.load(handle).get("pid", 0)))
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError, TypeError, AttributeError):
+        # An unreadable or partially initialized lock is not safe to reclaim.
+        return True
+
+
 def acquire_pipeline_lock(paths: Paths) -> bool:
     paths.run.mkdir(parents=True, exist_ok=True)
     lock = _lock_path(paths)
@@ -168,7 +189,7 @@ def drain_queue(config: AppConfig, paths: Paths) -> None:
 
 
 def try_spawn_worker(paths: Paths) -> bool:
-    if _lock_path(paths).exists():
+    if pipeline_lock_active(paths):
         return False
     worker_log = paths.run / "worker.log"
     worker_log.parent.mkdir(parents=True, exist_ok=True)

@@ -118,8 +118,9 @@ def validate_summary(path: Path) -> tuple[bool, str]:
 
 
 def status_snapshot(paths: Paths) -> dict[str, object]:
+    from .queue import pipeline_lock_active
+
     recording_path = paths.run / "current-recording.json"
-    lock_path = paths.run / "pipeline.lock"
     queue_path = paths.run / "queue"
     error_path = paths.run / "last-error.txt"
     active_session = None
@@ -131,7 +132,7 @@ def status_snapshot(paths: Paths) -> dict[str, object]:
     queued_count = len(list(queue_path.glob("*.json"))) if queue_path.exists() else 0
     last_error = error_path.read_text(encoding="utf-8").strip() if error_path.exists() else None
     recording = recording_path.exists()
-    processing = lock_path.exists()
+    processing = pipeline_lock_active(paths)
     state_label = "recording" if recording else "processing" if processing else "error" if last_error else "queued" if queued_count else "idle"
     return {
         "recording": recording,
