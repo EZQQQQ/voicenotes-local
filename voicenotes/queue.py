@@ -46,15 +46,10 @@ def pipeline_lock_active(paths: Paths) -> bool:
     if lock in _LOCK_HANDLES:
         return True
     try:
-        with lock.open("r+", encoding="utf-8") as handle:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                return True
-            try:
-                return _pid_alive(int(json.load(handle).get("pid", 0)))
-            finally:
-                fcntl.flock(handle, fcntl.LOCK_UN)
+        # Inspection must not contend with a worker reclaiming a stale lock.
+        # The worker's acquire_pipeline_lock remains the execution arbiter.
+        with lock.open(encoding="utf-8") as handle:
+            return _pid_alive(int(json.load(handle).get("pid", 0)))
     except FileNotFoundError:
         return False
     except (OSError, ValueError, TypeError, AttributeError):

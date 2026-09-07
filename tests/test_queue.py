@@ -131,3 +131,28 @@ def test_try_spawn_worker_keeps_unreadable_lock(tmp_path, monkeypatch):
     assert try_spawn_worker(p) is False
     assert launched == []
     assert lock.read_text(encoding="utf-8") == '{"pid":'
+
+
+def test_status_probe_does_not_block_worker_reclaiming_stale_lock(tmp_path, monkeypatch):
+    from voicenotes import queue
+    from voicenotes.state import status_snapshot
+
+    p = paths(tmp_path)
+    p.run.mkdir()
+    exited = subprocess.Popen(["true"])
+    exited.wait()
+    (p.run / "pipeline.lock").write_text(json.dumps({"pid": exited.pid}), encoding="utf-8")
+    original_pid_alive = queue._pid_alive
+    acquired = []
+
+    def start_worker_during_probe(pid):
+        monkeypatch.setattr(queue, "_pid_alive", original_pid_alive)
+        acquired.append(acquire_pipeline_lock(p))
+        return original_pid_alive(pid)
+
+    monkeypatch.setattr(queue, "_pid_alive", start_worker_during_probe)
+    try:
+        status_snapshot(p)
+        assert acquired == [True]
+    finally:
+        release_pipeline_lock(p)
