@@ -73,7 +73,20 @@ def test_generate_posts_non_streaming_payload(monkeypatch):
         "model": "qwen2.5:14b",
         "prompt": "Prompt text",
         "stream": False,
-        "options": {"temperature": 0.2, "num_ctx": 8192},
+        "think": False,
+        "options": {"temperature": 0.2, "num_ctx": 8192, "presence_penalty": 0},
         "keep_alive": "30s",
     }
     assert captured["timeout"] == 1800
+
+
+def test_generate_sends_optional_system_instructions(monkeypatch):
+    payloads = []
+
+    def fake_urlopen(request, timeout):
+        payloads.append(json.loads(request.data))
+        return FakeResponse({"response": "result", "done": True, "done_reason": "stop"})
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    generate("model", "source", system_prompt="Preserve the source language.")
+    assert payloads[0]["system"] == "Preserve the source language."

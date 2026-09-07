@@ -42,17 +42,20 @@ def ensure_model_available(model: str) -> None:
         raise RuntimeError(f"Ollama model missing. Run: ollama pull {model}")
 
 
-def generate(model: str, prompt: str, timeout_seconds: int = OLLAMA_TIMEOUT_SECONDS, max_output_tokens: int | None = None) -> str:
-    options: dict[str, object] = {"temperature": OLLAMA_TEMPERATURE, "num_ctx": OLLAMA_CONTEXT_LENGTH}
+def generate(model: str, prompt: str, timeout_seconds: int = OLLAMA_TIMEOUT_SECONDS, max_output_tokens: int | None = None, system_prompt: str | None = None) -> str:
+    options: dict[str, object] = {"temperature": OLLAMA_TEMPERATURE, "num_ctx": OLLAMA_CONTEXT_LENGTH, "presence_penalty": 0}
     if max_output_tokens is not None:
         options["num_predict"] = max_output_tokens
     payload = {
         "model": model,
         "prompt": prompt,
         "stream": False,
+        "think": False,
         "options": options,
         "keep_alive": OLLAMA_KEEP_ALIVE,
     }
+    if system_prompt is not None:
+        payload["system"] = system_prompt
     request = urllib.request.Request(
         f"{OLLAMA_BASE_URL}/api/generate",
         data=json.dumps(payload).encode("utf-8"),

@@ -1,5 +1,18 @@
 # Cleanup Context-Overflow & ASR Filler Noise Fix Implementation Plan
 
+## Implementation update — 2026-09-07
+
+Real-recording investigation supersedes the summary map/reduce design below:
+
+- Whisper previous-text conditioning propagated repetition loops; transcription now disables it.
+- Cleanup retains paragraph-preserving chunks and rejects missing or shifted timestamps, retrying invalid groups in smaller pieces.
+- Summary input removes segment labels, then uses 1,200-estimated-token chunks with up to 200 estimated tokens of context on each side. Saved transcripts retain timestamps.
+- Each summary chunk is validated before section-wise concatenation. There is no final model reduction that can discard earlier details. The seven-section schema remains unchanged; detailed multi-chunk notes may be longer.
+- Ollama retains its 8K context. Non-thinking generation, explicit source-fidelity system instructions, and zero presence penalty avoid relying on model defaults that can undermine faithful reproduction.
+- Token estimates and structural validation are safeguards, not factual-accuracy checks. Actual recording comparisons remain necessary; a passing test suite or valid Markdown does not certify summary content.
+
+The original investigation and task specification follow for historical context; their recursive summary-reduction architecture and unchanged-summary-prompt constraint are not the current implementation.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make long or noisy recordings complete without silent transcript loss by bounding every cleanup and summary request, failing closed on truncated model output, and preserving the verbatim ASR transcript for audit and retry.

@@ -6,7 +6,7 @@ from dataclasses import replace
 import pytest
 
 from voicenotes.config import AppConfig, Paths
-from voicenotes.pipeline import CLEANUP_PROMPT, PROMPT_VERSION, SUMMARY_PROMPT, artifact_status, format_timestamp, process_session, retry_session, transcribe_audio
+from voicenotes.pipeline import CLEANUP_PROMPT, PROMPT_VERSION, SUMMARY_PROMPT, _merge_summaries, artifact_status, format_timestamp, process_session, retry_session, transcribe_audio
 
 
 def config(tmp_path):
@@ -87,7 +87,7 @@ def test_prompts_preserve_raw_language_choice():
     cleanup = CLEANUP_PROMPT.format(transcript_raw="[00:00:00 - 00:00:03] Testing, testing, one, two, three.")
     summary = SUMMARY_PROMPT.format(transcript_clean="[00:00:00 - 00:00:03] Testing, testing, one, two, three.")
 
-    assert PROMPT_VERSION == "2026-09-07-cleanup-v1"
+    assert PROMPT_VERSION == "2026-09-07-summary-v6"
     assert "Your default behavior is to leave text unchanged." in cleanup
     assert 'Never replace "Testing, testing, one, two, three" with "测试，测试，一，二，三"' in cleanup
     assert "When uncertain, keep the raw transcript exactly as written." in cleanup
@@ -125,6 +125,16 @@ def test_process_session_writes_all_artifacts(tmp_path, monkeypatch):
     assert "## Blockers & open questions" in summary
 
 
+def test_summary_prompt_requires_source_language_details_and_uncertainty():
+    assert "中文内容用中文概括，保留原有 English 术语；英文内容用英文概括。" in SUMMARY_PROMPT
+    assert "Include every substantive topic" in SUMMARY_PROMPT
+    assert "numbers with their units and conditions" in SUMMARY_PROMPT
+    assert "Do not turn advice, possibilities, examples, or questions into agreements or tasks." in SUMMARY_PROMPT
+    assert "A person mentioned is not necessarily a speaker or an action owner." in SUMMARY_PROMPT
+    assert "Copy the exact source wording of explicitly committed tasks" in SUMMARY_PROMPT
+    assert "include every concrete numeric example or threshold" in SUMMARY_PROMPT
+
+
 def test_invalid_summary_is_saved_raw_and_fails(tmp_path, monkeypatch):
     session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
     session.mkdir(parents=True)
@@ -155,6 +165,140 @@ def test_retry_skips_valid_existing_artifacts(tmp_path, monkeypatch):
 
     assert artifact_status(session)["transcript_raw"] is True
     assert (session / "summary.md").exists()
+
+
+def test_summary_omits_segment_labels_without_modifying_transcripts(tmp_path, monkeypatch):
+    session = tmp_path / "session"
+    session.mkdir()
+    audio = b"RIFF" + b"0" * 10000
+    raw = "[00:00:00 - 00:00:01] original raw\n"
+    clean = (
+        "[00:00:00 - 00:00:03] Meet at 12:30:00; CPU 25%, 640 cores.\n\n"
+        "[00:00:03 - 00:00:06] 周五完成，保留 English。\n\n"
+        "A literal [00:01:00 - 00:02:00] reference inside speech.\n"
+    )
+    (session / "audio.wav").write_bytes(audio)
+    (session / "transcript_raw.md").write_text(raw, encoding="utf-8")
+    (session / "transcript_clean.md").write_text(clean, encoding="utf-8")
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    monkeypatch.setattr("voicenotes.pipeline.transcribe_audio", lambda *args: pytest.fail("must reuse raw"))
+    requests = []
+
+    def generate(model, prompt, **kwargs):
+        requests.append((prompt, kwargs))
+        return summary_body("CPU 25%, 640 cores; 周五完成")
+
+    monkeypatch.setattr("voicenotes.ollama.generate", generate)
+
+    process_session(session, config(tmp_path), paths(tmp_path))
+
+    assert len(requests) == 1
+    prompt, options = requests[0]
+    assert prompt.split("Transcript:\n", 1)[1] == (
+        "Meet at 12:30:00; CPU 25%, 640 cores.\n\n"
+        "周五完成，保留 English。\n\n"
+        "A literal [00:01:00 - 00:02:00] reference inside speech.\n"
+    )
+    assert options["max_output_tokens"] == 3500
+    assert "中文内容必须用中文" in options["system_prompt"]
+    assert (session / "audio.wav").read_bytes() == audio
+    assert (session / "transcript_raw.md").read_text(encoding="utf-8") == raw
+    assert (session / "transcript_clean.md").read_text(encoding="utf-8") == clean
+
+
+@pytest.mark.parametrize("invalid_second_chunk", [False, True])
+def test_summary_chunks_speech_and_preserves_section_details(tmp_path, monkeypatch, invalid_second_chunk):
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "audio.wav").write_bytes(b"RIFF" + b"0" * 10000)
+    source = "[00:00:00 - 00:00:03] " + "甲" * 800 + "\n\n[00:00:03 - 00:00:06] " + "乙" * 800 + "\n"
+    for name in ["transcript_raw.md", "transcript_clean.md"]:
+        (session / name).write_text(source, encoding="utf-8")
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    requests = []
+
+    def generate(model, prompt, **kwargs):
+        requests.append(prompt)
+        if len(requests) == 2 and invalid_second_chunk:
+            return "## Summary\n- broken second chunk"
+        return summary_body(f"detail {len(requests)}")
+
+    monkeypatch.setattr("voicenotes.ollama.generate", generate)
+    if invalid_second_chunk:
+        with pytest.raises(RuntimeError, match="summary validation failed"):
+            process_session(session, config(tmp_path), paths(tmp_path))
+        assert (session / "summary.raw.md").read_text().strip() == "## Summary\n- broken second chunk"
+        assert not (session / "summary.md").exists()
+    else:
+        process_session(session, config(tmp_path), paths(tmp_path))
+        summary = (session / "summary.md").read_text()
+        assert artifact_status(session)["summary"] is True
+        assert summary.count("## Summary\n") == 1
+        assert summary.count("### Blockers\n") == 1
+        assert summary.count("### Open questions\n") == 1
+        for section in ["## Feedback & critique", "## Decisions", "## Action items", "### Blockers", "### Open questions", "## Next steps"]:
+            body = summary.split(section + "\n", 1)[1].split("\n#", 1)[0]
+            assert "detail 1" in body and "detail 2" in body
+    assert len(requests) == 2
+    assert "甲" * 800 in requests[0] and "乙" not in requests[0]
+    assert "乙" * 800 in requests[1] and "甲" not in requests[1]
+    for name in ["transcript_raw.md", "transcript_clean.md"]:
+        assert (session / name).read_text() == source
+
+
+def test_summary_rejects_oversized_speech_paragraph_before_generation(tmp_path, monkeypatch):
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "audio.wav").write_bytes(b"RIFF" + b"0" * 10000)
+    source = "[00:00:00 - 00:00:03] " + "甲" * 1201 + "\n"
+    for name in ["transcript_raw.md", "transcript_clean.md"]:
+        (session / name).write_text(source, encoding="utf-8")
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: pytest.fail("oversized input must not reach model"))
+    with pytest.raises(ValueError, match="exceeds chunk budget"):
+        process_session(session, config(tmp_path), paths(tmp_path))
+    assert (session / "transcript_clean.md").read_text() == source
+    assert not (session / "summary.md").exists()
+
+
+def test_summary_merge_preserves_topic_subheadings_and_omits_empty_placeholders(tmp_path):
+    first = summary_body("none noted").replace("### Topic\n- none noted", "### Blockers\n- topic detail 1")
+    second = summary_body("detail 2").replace("### Topic", "### Blockers")
+    result = _merge_summaries([first, second])
+    discussion = result.split("## Discussion by topic\n", 1)[1].split("## Feedback & critique", 1)[0]
+    assert "topic detail 1" in discussion and "detail 2" in discussion
+    assert discussion.count("### Blockers") == 2
+    assert "none noted" not in result
+    path = tmp_path / "summary.md"
+    path.write_text(result)
+    from voicenotes.state import validate_summary
+    assert validate_summary(path) == (True, "ok")
+    assert _merge_summaries([first]) == first
+
+
+def test_summary_chunks_include_bounded_adjacent_context(tmp_path, monkeypatch):
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "audio.wav").write_bytes(b"RIFF" + b"0" * 10000)
+    first, second = "新版API保持兼容", "这些接口暂不删除"
+    source = f"[00:00:00 - 00:00:03] {first}\n\n[00:00:03 - 00:00:06] {second}\n"
+    for name in ["transcript_raw.md", "transcript_clean.md"]:
+        (session / name).write_text(source)
+    monkeypatch.setattr("voicenotes.pipeline.SUMMARY_CHUNK_MAX_TOKENS", 15)
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    requests = []
+
+    def generate(model, prompt, **kwargs):
+        requests.append(prompt)
+        return summary_body("新版API的接口暂不删除")
+
+    monkeypatch.setattr("voicenotes.ollama.generate", generate)
+    process_session(session, config(tmp_path), paths(tmp_path))
+    assert len(requests) == 2
+    assert f"Context after (reference only):\n{second}" in requests[0]
+    assert f"Context before (reference only):\n{first}" in requests[1]
+    assert requests[0].split("Transcript:\n", 1)[1] == first + "\n"
+    assert requests[1].split("Transcript:\n", 1)[1] == second + "\n"
 
 
 def test_retry_regenerates_malformed_utf8_transcript(tmp_path, monkeypatch):

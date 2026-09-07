@@ -101,7 +101,7 @@ def test_generate_sets_num_predict_only_when_requested_and_rejects_bad_completio
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     assert generate("model", "prompt") == "clean"
     assert generate("model", "prompt", max_output_tokens=123) == "clean"
-    assert captured[0]["options"] == {"temperature": 0.2, "num_ctx": 8192}
+    assert captured[0]["options"] == {"temperature": 0.2, "num_ctx": 8192, "presence_penalty": 0}
     assert captured[1]["options"]["num_predict"] == 123
 
     monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: FakeResponse({"response": "", "thinking": "internal reasoning only", "done": True, "done_reason": "stop"}))

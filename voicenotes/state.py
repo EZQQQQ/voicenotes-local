@@ -71,7 +71,11 @@ def required_summary_headings() -> list[str]:
 def validate_summary(path: Path) -> tuple[bool, str]:
     if not path.exists():
         return False, "missing summary.md"
-    lines = path.read_text(encoding="utf-8").splitlines()
+    return validate_summary_text(path.read_text(encoding="utf-8"))
+
+
+def validate_summary_text(text: str) -> tuple[bool, str]:
+    lines = text.splitlines()
     headings = [line.strip() for line in lines if MARKDOWN_HEADING.match(line)]
 
     first_heading_index = next((i for i, line in enumerate(lines) if MARKDOWN_HEADING.match(line)), -1)

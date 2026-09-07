@@ -14,6 +14,8 @@ flowchart LR
 
 Cleanup works in bounded, paragraph-preserving chunks and rejects responses with missing timestamps or heavily shortened segments. Repeated filler-only runs are reduced in cleanup input; the raw transcript stays unchanged. Processing runs after recording stops, and failed stages can be retried without starting over.
 
+Summaries omit timestamp labels from model input, use bounded chunks with surrounding context, and combine their sections. Saved transcripts retain their timestamps.
+
 ## Requirements
 
 - Apple Silicon Mac with 16GB memory or more
@@ -120,7 +122,7 @@ If processing fails, check `error.log` and `pipeline.log` in the session folder,
 
 After the initial downloads, the default pipeline records, transcribes and generates notes locally, without a hosted VoiceNotes service or cloud inference. Network access is not sandboxed; this is a local-processing design, not an enforced offline environment.
 
-Long or noisy recordings can still lose details during cleanup and summarization, even when processing succeeds. Cleanup is chunked, but summarization currently uses a single model request. Verify important names, numbers and decisions against `transcript_raw.md` and the recording.
+Long or noisy recordings can still contain recognition errors, omissions or incorrect interpretations. Chunking and validation protect structure, not factual accuracy. Verify important names, numbers and decisions against `transcript_raw.md` and the recording.
 
 ## Further Reference
 
