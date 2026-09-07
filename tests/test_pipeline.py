@@ -224,6 +224,65 @@ def test_retry_from_clean_reuses_raw_and_regenerates_derived_artifacts(tmp_path,
     assert "- fresh" in (session / "summary.md").read_text(encoding="utf-8")
 
 
+def test_cleanup_failure_invalidates_stale_summary_before_cleanup(tmp_path, monkeypatch):
+    session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
+    session.mkdir(parents=True)
+    audio = b"RIFF" + b"0" * 10000
+    raw = "[00:00:00 - 00:00:01] preserved raw\n"
+    (session / "audio.wav").write_bytes(audio)
+    (session / "transcript_raw.md").write_text(raw, encoding="utf-8")
+    (session / "summary.md").write_text(summary_body("stale"), encoding="utf-8")
+    (session / "summary.raw.md").write_text("stale generated output\n", encoding="utf-8")
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("cleanup failed")))
+
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        process_session(session, config(tmp_path), paths(tmp_path))
+
+    assert (session / "audio.wav").read_bytes() == audio
+    assert (session / "transcript_raw.md").read_text(encoding="utf-8") == raw
+    assert not (session / "summary.md").exists()
+    assert not (session / "summary.raw.md").exists()
+
+
+@pytest.mark.parametrize("failure_stage", ["cleanup", "summary"])
+def test_retry_from_clean_failure_preserves_raw_audio_and_removes_stale_artifacts(tmp_path, monkeypatch, failure_stage):
+    session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
+    session.mkdir(parents=True)
+    audio = b"RIFF" + b"0" * 10000
+    raw = "[00:00:00 - 00:00:01] preserved raw\n"
+    (session / "audio.wav").write_bytes(audio)
+    (session / "transcript_raw.md").write_text(raw, encoding="utf-8")
+    (session / "transcript_clean.md").write_text("[00:00:00 - 00:00:01] stale clean\n", encoding="utf-8")
+    (session / "summary.md").write_text(summary_body("stale"), encoding="utf-8")
+    (session / "summary.raw.md").write_text("stale generated output\n", encoding="utf-8")
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    if failure_stage == "cleanup":
+        monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("cleanup failed")))
+    else:
+        responses = iter(["[00:00:00 - 00:00:01] fresh clean", RuntimeError("summary failed")])
+
+        def fail_summary(*args, **kwargs):
+            response = next(responses)
+            if isinstance(response, Exception):
+                raise response
+            return response
+
+        monkeypatch.setattr("voicenotes.ollama.generate", fail_summary)
+
+    with pytest.raises(RuntimeError, match=f"{failure_stage} failed"):
+        retry_session(session, config(tmp_path), paths(tmp_path), from_clean=True)
+
+    assert (session / "audio.wav").read_bytes() == audio
+    assert (session / "transcript_raw.md").read_text(encoding="utf-8") == raw
+    assert not (session / "summary.md").exists()
+    assert not (session / "summary.raw.md").exists()
+    if failure_stage == "cleanup":
+        assert not (session / "transcript_clean.md").exists()
+    else:
+        assert (session / "transcript_clean.md").read_text(encoding="utf-8") == "[00:00:00 - 00:00:01] fresh clean\n"
+
+
 def test_process_session_rejects_empty_raw_transcript_before_cleanup(tmp_path, monkeypatch):
     session = tmp_path / "VoiceNotes" / "2026-08-27_143012"
     session.mkdir(parents=True)

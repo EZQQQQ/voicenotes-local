@@ -374,9 +374,9 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
 
         if needs_clean:
             raw_transcript = raw_path.read_text(encoding="utf-8")
-            cleaned_output = clean_transcript(config.ollama_model, raw_transcript)
             summary_path.unlink(missing_ok=True)
             (session / "summary.raw.md").unlink(missing_ok=True)
+            cleaned_output = clean_transcript(config.ollama_model, raw_transcript)
             atomic_write_text(clean_path, cleaned_output + "\n")
             if not _valid_text(clean_path):
                 raise RuntimeError("clean transcript validation failed")
