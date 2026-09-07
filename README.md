@@ -6,13 +6,22 @@ VoiceNotes combines Hammerspoon recording controls, Whisper large-v3 through MLX
 
 ```mermaid
 flowchart LR
-    A@{ img: "https://cdn.jsdelivr.net/npm/twemoji@14.0.2/assets/72x72/1f399.png", label: "Record audio\nHammerspoon hotkey + ffmpeg", pos: "t", w: 60, h: 60, constraint: "off" }
-    B@{ img: "https://cdn.jsdelivr.net/npm/twemoji@14.0.2/assets/72x72/1f9e0.png", label: "Transcribe\nWhisper large-v3 via MLX", pos: "t", w: 60, h: 60, constraint: "off" }
-    C@{ img: "https://cdn.jsdelivr.net/npm/twemoji@14.0.2/assets/72x72/1f4c4.png", label: "Raw transcript\ntimestamped, filler runs collapsed", pos: "t", w: 60, h: 60, constraint: "off" }
-    D@{ img: "https://cdn.jsdelivr.net/npm/twemoji@14.0.2/assets/72x72/2702.png", label: "Chunked cleanup\nOllama, paragraph-preserving", pos: "t", w: 60, h: 60, constraint: "off" }
-    E@{ img: "https://cdn.jsdelivr.net/npm/twemoji@14.0.2/assets/72x72/1f4cb.png", label: "Markdown summary\nOllama, sectioned notes", pos: "t", w: 60, h: 60, constraint: "off" }
+    A["🎙️ Record audio<br/>Hammerspoon hotkey + ffmpeg"] --> B["🧠 Transcribe<br/>Whisper large-v3 via MLX"]
+    B --> C["📄 Raw transcript<br/>timestamped, filler runs collapsed"]
+    C --> D["✂️ Chunked cleanup<br/>Ollama, paragraph-preserving"]
+    D --> E["📋 Markdown summary<br/>Ollama, sectioned notes"]
 
-    A --> B --> C --> D --> E
+    classDef record fill:#fde2e2,stroke:#c0392b,color:#7b241c
+    classDef transcribe fill:#fdebd0,stroke:#af601a,color:#7e5109
+    classDef raw fill:#fcf3cf,stroke:#b7950b,color:#7d6608
+    classDef cleanup fill:#d5f5e3,stroke:#1e8449,color:#145a32
+    classDef summary fill:#d6eaf8,stroke:#2471a3,color:#1b4f72
+
+    class A record
+    class B transcribe
+    class C raw
+    class D cleanup
+    class E summary
 ```
 
 Cleanup works in bounded, paragraph-preserving chunks and rejects responses with missing timestamps or heavily shortened segments. Repeated filler-only runs are reduced in cleanup input; the raw transcript stays unchanged. Processing runs after recording stops, and failed stages can be retried without starting over.
