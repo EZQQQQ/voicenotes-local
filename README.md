@@ -6,10 +6,22 @@ VoiceNotes combines Hammerspoon recording controls, Whisper large-v3 through MLX
 
 ```mermaid
 flowchart LR
-    A[Record audio] --> B[Whisper transcription]
-    B --> C[Raw transcript]
-    C --> D[Chunked cleanup]
-    D --> E[Markdown summary]
+    A["🎙️ Record audio<br/>Hammerspoon hotkey + ffmpeg"] --> B["🧠 Transcribe<br/>Whisper large-v3 via MLX"]
+    B --> C["📄 Raw transcript<br/>timestamped, filler runs collapsed"]
+    C --> D["✂️ Chunked cleanup<br/>Ollama, paragraph-preserving"]
+    D --> E["📋 Markdown summary<br/>Ollama, sectioned notes"]
+
+    classDef record fill:#fde2e2,stroke:#c0392b,color:#7b241c
+    classDef transcribe fill:#fdebd0,stroke:#af601a,color:#7e5109
+    classDef raw fill:#fcf3cf,stroke:#b7950b,color:#7d6608
+    classDef cleanup fill:#d5f5e3,stroke:#1e8449,color:#145a32
+    classDef summary fill:#d6eaf8,stroke:#2471a3,color:#1b4f72
+
+    class A record
+    class B transcribe
+    class C raw
+    class D cleanup
+    class E summary
 ```
 
 Cleanup works in bounded, paragraph-preserving chunks and rejects responses with missing timestamps or heavily shortened segments. Repeated filler-only runs are reduced in cleanup input; the raw transcript stays unchanged. Processing runs after recording stops, and failed stages can be retried without starting over.
@@ -127,7 +139,3 @@ Long or noisy recordings can still contain recognition errors, omissions or inco
 ## Further Reference
 
 For a more comprehensive speech-transcription project, see [WhisperX](https://github.com/m-bain/whisperX). Its documentation covers word-level alignment, speaker diarization and batched inference. It is a useful reference for those workflows; VoiceNotes uses its own smaller, MLX-based transcription pipeline.
-
-## Uninstall
-
-Run `./uninstall.sh` from the repository checkout. It removes the app, runtime files, Python environment, command wrapper and Hammerspoon integration, while retaining your recordings, config, downloaded models and Homebrew dependencies.
