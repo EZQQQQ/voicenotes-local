@@ -7,7 +7,7 @@ VoiceNotes combines Hammerspoon recording controls, Whisper large-v3 through MLX
 ```mermaid
 flowchart LR
     A["🎙️ Record audio<br/>Hammerspoon hotkey + ffmpeg"] --> B["🧠 Transcribe<br/>Whisper large-v3 via MLX"]
-    B --> C["📄 Raw transcript<br/>timestamped, filler runs collapsed"]
+    B --> C["📄 Raw transcript<br/>timestamped, preserved unchanged"]
     C --> D["✂️ Chunked cleanup<br/>Ollama, paragraph-preserving"]
     D --> E["📋 Markdown summary<br/>Ollama, sectioned notes"]
 
