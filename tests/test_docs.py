@@ -7,8 +7,6 @@ def test_readme_covers_required_user_topics():
 
     for text in [
         "gh repo clone ezqqqq/voicenotes-local",
-        "Microphone",
-        "Accessibility",
         "Cmd+`",
         "output_root",
         "audio_device",
@@ -18,8 +16,13 @@ def test_readme_covers_required_user_topics():
         "voicenotes doctor",
         "Whisper stays fixed",
         "Ollama model is configurable",
+        "```mermaid",
+        "https://github.com/m-bain/whisperX",
+        "--from-clean",
     ]:
         assert text in readme
+
+    assert "## Permissions" not in readme
 
 
 def test_license_is_mit():
