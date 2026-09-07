@@ -77,6 +77,26 @@ def test_clean_transcript_rejects_empty_body_and_severe_contraction(monkeypatch)
         pipeline.clean_transcript("model", "[00:00:00 - 00:00:01] We discussed sensors. The red sensor trips at 17 volts and the blue sensor resets after 23 seconds.")
 
 
+@pytest.mark.parametrize("source, replacement", [
+    ("可以找小林确认。", "可以找 algorithm 确认。"),
+    ("Testing, one, two.", "测试，一，二。"),
+])
+def test_cleanup_rejects_introducing_a_language_absent_from_the_segment(monkeypatch, source, replacement):
+    label = "[00:00:00 - 00:00:01] "
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: label + replacement)
+    with pytest.raises(RuntimeError, match="segment language changed"):
+        pipeline.clean_transcript("model", label + source)
+
+
+def test_cleanup_retries_language_changed_group_in_smaller_chunks(monkeypatch):
+    first = "[00:00:00 - 00:00:01] 可以找小林确认。"
+    last = "[00:00:01 - 00:00:02] 请保持服务稳定。"
+    source = first + "\n\n" + last
+    responses = iter([source.replace("小林", "algorithm"), first, last])
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: next(responses))
+    assert pipeline.clean_transcript("model", source) == source
+
+
 class FakeResponse:
     def __init__(self, payload):
         self.payload = payload

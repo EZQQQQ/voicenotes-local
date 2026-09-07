@@ -270,6 +270,11 @@ def _validate_cleaned_chunk(source: str, cleaned: str) -> None:
         if source_part is not None and cleaned_part is not None and source_part[2].strip() and not cleaned_part[2].strip():
             raise _CleanupValidationError("clean transcript validation failed: segment content missing")
         if source_part is not None and cleaned_part is not None:
+            # Cleanup must not turn a monolingual segment (including a name)
+            # into another language; retry smaller groups on this violation.
+            for script in (r"[A-Za-z]", r"[一-鿿]"):
+                if re.search(script, cleaned_part[2]) and not re.search(script, source_part[2]):
+                    raise _CleanupValidationError("clean transcript validation failed: segment language changed")
             source_length = len(re.sub(r"\s", "", source_part[2]))
             cleaned_length = len(re.sub(r"\s", "", cleaned_part[2]))
             if source_length >= 40 and cleaned_length < source_length * 0.8:
