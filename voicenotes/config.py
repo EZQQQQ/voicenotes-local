@@ -23,6 +23,7 @@ class AppConfig:
     audio_device: str
     ollama_model: str
     auto_open: bool
+    summary_model: str | None = None
 
 
 def default_paths(home: Path | None = None) -> Paths:
@@ -48,14 +49,18 @@ def load_config(path: Path | None = None) -> AppConfig:
         audio_device=str(raw["audio_device"]),
         ollama_model=str(raw["ollama_model"]),
         auto_open=bool(raw["auto_open"]),
+        summary_model=str(raw["summary_model"]) if "summary_model" in raw else None,
     )
 
 
 def config_as_dict(config: AppConfig) -> dict[str, object]:
-    return {
+    result: dict[str, object] = {
         "output_root": str(config.output_root),
         "hotkey": {"mods": config.hotkey_mods, "key": config.hotkey_key},
         "audio_device": config.audio_device,
         "ollama_model": config.ollama_model,
         "auto_open": config.auto_open,
     }
+    if config.summary_model is not None:
+        result["summary_model"] = config.summary_model
+    return result

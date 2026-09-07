@@ -58,6 +58,8 @@ def run_doctor(config: AppConfig, paths: Paths) -> int:
         _check("Whisper model", lambda: _require_model_files(paths)),
         _check("Ollama model", lambda: ollama.ensure_model_available(config.ollama_model)),
     ]
+    if config.summary_model and config.summary_model != config.ollama_model:
+        checks.append(_check("Summary model", lambda: ollama.ensure_model_available(config.summary_model)))
 
     hammerspoon = Path.home() / ".hammerspoon"
     checks.append(_check("Hammerspoon module", lambda: _require((hammerspoon / "voicenotes.lua").exists(), "voicenotes.lua not found")))

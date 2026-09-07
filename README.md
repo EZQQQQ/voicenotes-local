@@ -79,6 +79,7 @@ key = "`"
 - `output_root`: where recordings and notes are saved in per-session folders.
 - `audio_device`: `default` selects audio input index 0; use `voicenotes devices` to find an exact device name.
 - `ollama_model`: the installed local model used for cleanup and summaries.
+- `summary_model` (optional): use a separate installed model for summaries, e.g. `summary_model = "qwen3.5:27b"` above `[hotkey]`. Larger models need more memory and time; they can still make factual errors.
 - `auto_open`: whether completed summaries open automatically.
 - `[hotkey]`: the Hammerspoon modifiers and key.
 
@@ -94,7 +95,7 @@ voicenotes retry ~/VoiceNotes/2026-08-27_143012
 voicenotes record-test --duration 10
 ```
 
-`voicenotes retry <session>` resumes from the first missing or invalid artifact, reusing valid earlier results. To replace an existing cleanup and summary while retaining the raw transcript and audio:
+`voicenotes retry <session>` resumes from the first missing or invalid artifact, checking cached cleanup against the raw transcript and reusing valid earlier results. To replace an existing cleanup and summary while retaining the raw transcript and audio:
 
 ```bash
 voicenotes retry ~/VoiceNotes/2026-08-27_143012 --from-clean

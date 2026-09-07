@@ -125,6 +125,88 @@ def test_process_session_writes_all_artifacts(tmp_path, monkeypatch):
     assert "## Blockers & open questions" in summary
 
 
+@pytest.mark.parametrize(
+    "override, expected_preflight, expected_calls",
+    [
+        (None, ["qwen2.5:14b"], ["qwen2.5:14b", "qwen2.5:14b"]),
+        ("summary-model", ["qwen2.5:14b", "summary-model"], ["qwen2.5:14b", "summary-model"]),
+    ],
+)
+def test_pipeline_selects_models_per_stage(tmp_path, monkeypatch, override, expected_preflight, expected_calls):
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "audio.wav").write_bytes(b"RIFF" + b"0" * 10000)
+    raw = "[00:00:00 - 00:00:01] Keep this sentence.\n"
+    (session / "transcript_raw.md").write_text(raw)
+    preflight, calls = [], []
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", preflight.append)
+    monkeypatch.setattr("voicenotes.pipeline.notify", lambda *args: None)
+    monkeypatch.setattr("voicenotes.pipeline.transcribe_audio", lambda *args: pytest.fail("reuse raw"))
+
+    def generate(model, prompt, **kwargs):
+        calls.append(model)
+        return raw if len(calls) == 1 else summary_body("Keep this sentence.")
+
+    monkeypatch.setattr("voicenotes.ollama.generate", generate)
+    process_session(session, replace(config(tmp_path), summary_model=override), paths(tmp_path))
+
+    assert preflight == expected_preflight
+    assert calls == expected_calls
+    assert (session / "transcript_raw.md").read_text() == raw
+    versions = json.loads((session / "session.json").read_text())["command_versions"]
+    assert versions["ollama"] == "qwen2.5:14b"
+    assert versions.get("ollama_summary") == expected_calls[-1]
+
+
+def test_summary_only_retry_does_not_require_unused_cleanup_model(tmp_path, monkeypatch):
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "audio.wav").write_bytes(b"RIFF" + b"0" * 10000)
+    source = "[00:00:00 - 00:00:01] Existing transcript.\n"
+    for name in ["transcript_raw.md", "transcript_clean.md"]:
+        (session / name).write_text(source)
+    (session / "session.json").write_text(json.dumps({"command_versions": {"ollama": "original-cleanup"}}))
+    checked = []
+
+    def ensure(model):
+        checked.append(model)
+        if model == "qwen2.5:14b":
+            raise RuntimeError("cleanup model is unavailable")
+
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", ensure)
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: summary_body("Existing transcript."))
+    monkeypatch.setattr("voicenotes.pipeline.notify", lambda *args: None)
+    retry_session(session, replace(config(tmp_path), summary_model="summary-model"), paths(tmp_path))
+
+    assert checked == ["summary-model"]
+    assert artifact_status(session)["summary"] is True
+    versions = json.loads((session / "session.json").read_text())["command_versions"]
+    assert versions == {"ollama": "original-cleanup", "ollama_summary": "summary-model"}
+
+
+def test_missing_summary_model_fails_before_cleanup(tmp_path, monkeypatch):
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "audio.wav").write_bytes(b"RIFF" + b"0" * 10000)
+    (session / "transcript_raw.md").write_text("[00:00:00 - 00:00:01] Keep raw.\n")
+    provenance = {"prompt_version": "old-prompt", "command_versions": {"ollama": "old-cleanup"}}
+    (session / "session.json").write_text(json.dumps(provenance))
+
+    def ensure(model):
+        if model == "missing-summary-model":
+            raise RuntimeError("summary model missing")
+
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", ensure)
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: pytest.fail("preflight must finish before generation"))
+    monkeypatch.setattr("voicenotes.pipeline.notify", lambda *args: None)
+    with pytest.raises(RuntimeError, match="summary model missing"):
+        process_session(session, replace(config(tmp_path), summary_model="missing-summary-model"), paths(tmp_path))
+    state = json.loads((session / "session.json").read_text())
+    assert state["command_versions"] == provenance["command_versions"]
+    assert state["prompt_version"] == provenance["prompt_version"]
+    assert not (session / "transcript_clean.md").exists()
+
+
 def test_summary_prompt_requires_source_language_details_and_uncertainty():
     assert "中文内容用中文概括，保留原有 English 术语；英文内容用英文概括。" in SUMMARY_PROMPT
     assert "Include every substantive topic" in SUMMARY_PROMPT
@@ -171,12 +253,12 @@ def test_summary_omits_segment_labels_without_modifying_transcripts(tmp_path, mo
     session = tmp_path / "session"
     session.mkdir()
     audio = b"RIFF" + b"0" * 10000
-    raw = "[00:00:00 - 00:00:01] original raw\n"
     clean = (
         "[00:00:00 - 00:00:03] Meet at 12:30:00; CPU 25%, 640 cores.\n\n"
         "[00:00:03 - 00:00:06] 周五完成，保留 English。\n\n"
-        "A literal [00:01:00 - 00:02:00] reference inside speech.\n"
+        "[00:00:06 - 00:00:09] A literal [00:01:00 - 00:02:00] reference inside speech.\n"
     )
+    raw = clean
     (session / "audio.wav").write_bytes(audio)
     (session / "transcript_raw.md").write_text(raw, encoding="utf-8")
     (session / "transcript_clean.md").write_text(clean, encoding="utf-8")
@@ -375,6 +457,7 @@ def test_cleanup_failure_invalidates_stale_summary_before_cleanup(tmp_path, monk
     raw = "[00:00:00 - 00:00:01] preserved raw\n"
     (session / "audio.wav").write_bytes(audio)
     (session / "transcript_raw.md").write_text(raw, encoding="utf-8")
+    (session / "transcript_clean.md").write_text("truncated cached cleanup\n", encoding="utf-8")
     (session / "summary.md").write_text(summary_body("stale"), encoding="utf-8")
     (session / "summary.raw.md").write_text("stale generated output\n", encoding="utf-8")
     monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
@@ -385,6 +468,7 @@ def test_cleanup_failure_invalidates_stale_summary_before_cleanup(tmp_path, monk
 
     assert (session / "audio.wav").read_bytes() == audio
     assert (session / "transcript_raw.md").read_text(encoding="utf-8") == raw
+    assert (session / "transcript_clean.md").read_text(encoding="utf-8") == "truncated cached cleanup\n"
     assert not (session / "summary.md").exists()
     assert not (session / "summary.raw.md").exists()
 
@@ -400,6 +484,7 @@ def test_retry_from_clean_failure_preserves_raw_audio_and_removes_stale_artifact
     (session / "transcript_clean.md").write_text("[00:00:00 - 00:00:01] stale clean\n", encoding="utf-8")
     (session / "summary.md").write_text(summary_body("stale"), encoding="utf-8")
     (session / "summary.raw.md").write_text("stale generated output\n", encoding="utf-8")
+    (session / "session.json").write_text(json.dumps({"command_versions": {"ollama": "old-cleanup"}}))
     monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
     if failure_stage == "cleanup":
         monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("cleanup failed")))
@@ -423,8 +508,10 @@ def test_retry_from_clean_failure_preserves_raw_audio_and_removes_stale_artifact
     assert not (session / "summary.raw.md").exists()
     if failure_stage == "cleanup":
         assert not (session / "transcript_clean.md").exists()
+        assert json.loads((session / "session.json").read_text())["command_versions"] == {"ollama": "old-cleanup"}
     else:
         assert (session / "transcript_clean.md").read_text(encoding="utf-8") == "[00:00:00 - 00:00:01] fresh clean\n"
+        assert json.loads((session / "session.json").read_text())["command_versions"] == {"ollama": "qwen2.5:14b"}
 
 
 def test_process_session_rejects_empty_raw_transcript_before_cleanup(tmp_path, monkeypatch):
@@ -457,3 +544,91 @@ def test_process_session_opens_valid_existing_summary_when_enabled(tmp_path, mon
     process_session(session, replace(config(tmp_path), auto_open=True), paths(tmp_path))
 
     assert opened == [["open", "-g", str(session / "summary.md")]]
+
+
+@pytest.mark.parametrize("known_provenance", [False, True])
+def test_cached_retry_does_not_relabel_existing_generation(tmp_path, monkeypatch, known_provenance):
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "audio.wav").write_bytes(b"RIFF" + b"0" * 10000)
+    for name in ["transcript_raw.md", "transcript_clean.md"]:
+        (session / name).write_text("[00:00:00 - 00:00:01] Existing words.\n")
+    (session / "summary.md").write_text(summary_body("Existing words."))
+    provenance = {
+        "prompt_version": "previous-prompt",
+        "command_versions": {"ollama": "previous-model"},
+        "completed_at": "2026-01-01T12:00:00",
+    } if known_provenance else {}
+    (session / "session.json").write_text(json.dumps(provenance))
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda *args: pytest.fail("reuse valid cache"))
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: pytest.fail("reuse valid cache"))
+    monkeypatch.setattr("voicenotes.pipeline.notify", lambda *args: None)
+
+    retry_session(session, replace(config(tmp_path), summary_model="new-summary-model"), paths(tmp_path))
+
+    state = json.loads((session / "session.json").read_text())
+    assert state["status"] == "complete"
+    for key in ["prompt_version", "command_versions", "completed_at"]:
+        if known_provenance:
+            assert state[key] == provenance[key]
+        else:
+            assert key not in state
+
+
+def test_retry_rebuilds_truncated_cached_cleanup_and_summary(tmp_path, monkeypatch):
+    session = tmp_path / "session"
+    session.mkdir()
+    audio = b"RIFF" + b"0" * 10000
+    raw = "[00:00:00 - 00:00:01] First detail.\n\n[00:00:01 - 00:00:02] Last detail.\n"
+    (session / "audio.wav").write_bytes(audio)
+    (session / "transcript_raw.md").write_text(raw)
+    (session / "transcript_clean.md").write_text(raw.split("\n\n")[0])
+    (session / "summary.md").write_text(summary_body("stale"))
+    monkeypatch.setattr("voicenotes.pipeline.transcribe_audio", lambda *args: pytest.fail("reuse raw"))
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda *args: None)
+    responses = iter([raw, summary_body("First detail; Last detail")])
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr("voicenotes.pipeline.notify", lambda *args: None)
+
+    retry_session(session, config(tmp_path), paths(tmp_path))
+
+    assert (session / "transcript_clean.md").read_text() == raw
+    assert "Last detail" in (session / "summary.md").read_text()
+    assert (session / "transcript_raw.md").read_text() == raw
+    assert (session / "audio.wav").read_bytes() == audio
+
+
+@pytest.mark.parametrize("collapsed", [False, True])
+def test_retry_reuses_faithful_cached_cleanup_with_blank_and_filler_segments(tmp_path, monkeypatch, collapsed):
+    from voicenotes.pipeline import collapse_filler_runs
+
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "audio.wav").write_bytes(b"RIFF" + b"0" * 10000)
+    paragraphs = [
+        "[00:00:00 - 00:00:01] Words.",
+        "[00:00:01 - 00:00:01]",
+        "[00:00:01 - 00:00:01]",
+        "[00:00:01 - 00:00:02] 嗯",
+        "[00:00:02 - 00:00:03] 嗯",
+        "[00:00:03 - 00:00:04] 嗯",
+    ]
+    raw = "\n\n".join(paragraphs) + "\n"
+    clean = "\n\n".join(collapse_filler_runs(paragraphs) if collapsed else paragraphs) + "\n"
+    (session / "transcript_raw.md").write_text(raw)
+    (session / "transcript_clean.md").write_text(clean)
+    (session / "summary.md").write_text(summary_body("Words."))
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda *args: pytest.fail("reuse valid cache"))
+    monkeypatch.setattr("voicenotes.pipeline.notify", lambda *args: None)
+
+    retry_session(session, config(tmp_path), paths(tmp_path))
+
+    assert (session / "transcript_clean.md").read_text() == clean
+    assert (session / "transcript_raw.md").read_text() == raw
+
+
+@pytest.mark.parametrize("clean", [b"\xff\xfe", b"[00:00:00 - 00:00:01]", b"[00:00:00 - 00:00:01] Short."])
+def test_artifact_status_rejects_unreadable_or_content_losing_cleanup(tmp_path, clean):
+    (tmp_path / "transcript_raw.md").write_text("[00:00:00 - 00:00:01] " + "Substantive details. " * 5)
+    (tmp_path / "transcript_clean.md").write_bytes(clean)
+    assert artifact_status(tmp_path)["transcript_clean"] is False

@@ -371,9 +371,26 @@ def artifact_status(session: Path) -> dict[str, bool]:
     return {
         "audio": (session / "audio.wav").is_file() and (session / "audio.wav").stat().st_size >= AUDIO_MIN_BYTES,
         "transcript_raw": _valid_text(session / "transcript_raw.md"),
-        "transcript_clean": _valid_text(session / "transcript_clean.md"),
+        "transcript_clean": _valid_cached_cleanup(session),
         "summary": _valid_summary(session / "summary.md"),
     }
+
+
+def _valid_cached_cleanup(session: Path) -> bool:
+    try:
+        raw = (session / "transcript_raw.md").read_text(encoding="utf-8")
+        clean = (session / "transcript_clean.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    # Accept faithful legacy transcripts as well as current filler-collapsed ones.
+    collapsed = "\n\n".join(collapse_filler_runs(raw.strip().split("\n\n")))
+    for source in (raw, collapsed):
+        try:
+            _validate_cleaned_chunk(source, clean)
+            return True
+        except _CleanupValidationError:
+            pass
+    return False
 
 
 def _session_state(session: Path) -> dict[str, object]:
@@ -386,30 +403,38 @@ def _session_state(session: Path) -> dict[str, object]:
         return {}
 
 
-def _write_session_state(session: Path, status: str, config: AppConfig, error: str | None = None) -> None:
+def _record_generation(session: Path, **models: str) -> None:
+    state = _session_state(session)
+    versions = dict(state.get("command_versions", {}))
+    versions.update(models)
+    state["command_versions"] = versions
+    if "ollama" in models or "ollama_summary" in models:
+        state["prompt_version"] = PROMPT_VERSION
+    atomic_write_json(session / "session.json", state)
+
+
+def _write_session_state(session: Path, status: str, error: str | None = None, *, completed_now: bool = False) -> None:
     state = _session_state(session)
     now = datetime.now().isoformat(timespec="seconds")
     state.update(
         {
             "status": status,
             "updated_at": now,
-            "prompt_version": PROMPT_VERSION,
-            "command_versions": {"whisper": WHISPER_REPO_ID, "ollama": config.ollama_model},
             "error": error,
         }
     )
     if status == "processing":
         state["processing_started_at"] = now
-    if status == "complete":
+    if status == "complete" and completed_now:
         state["completed_at"] = now
     atomic_write_json(session / "session.json", state)
 
 
-def _write_failure(session: Path, config: AppConfig, paths: Paths, error: Exception) -> None:
+def _write_failure(session: Path, paths: Paths, error: Exception) -> None:
     message = str(error)
     atomic_write_text(session / "error.log", message + "\n")
     atomic_write_text(session / "pipeline.log", f"failed: {message}\n")
-    _write_session_state(session, "error", config, message)
+    _write_session_state(session, "error", message)
     write_last_error(paths, message)
     notify("Note processing failed", session.name)
 
@@ -420,7 +445,7 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
         if not status["audio"]:
             raise RuntimeError("audio validation failed")
         if all(status.values()):
-            _write_session_state(session, "complete", config)
+            _write_session_state(session, "complete")
             atomic_write_text(session / "pipeline.log", "complete: existing artifacts are valid\n")
             clear_last_error(paths)
             if config.auto_open:
@@ -428,8 +453,7 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
             notify("Note ready", session.name)
             return
 
-        _write_session_state(session, "processing", config)
-        ollama.ensure_model_available(config.ollama_model)
+        _write_session_state(session, "processing")
 
         raw_path = session / "transcript_raw.md"
         clean_path = session / "transcript_clean.md"
@@ -437,6 +461,10 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
         needs_raw = not status["transcript_raw"]
         needs_clean = needs_raw or not status["transcript_clean"]
         needs_summary = needs_clean or not status["summary"]
+        summary_model = config.summary_model or config.ollama_model
+        required_models = ([config.ollama_model] if needs_clean else []) + ([summary_model] if needs_summary else [])
+        for model in dict.fromkeys(required_models):
+            ollama.ensure_model_available(model)
         if needs_raw:
             segments = transcribe_audio(session / "audio.wav", paths)
             clean_path.unlink(missing_ok=True)
@@ -445,6 +473,7 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
             write_raw_transcript(session, segments)
             if not _valid_text(raw_path):
                 raise RuntimeError("raw transcript validation failed")
+            _record_generation(session, whisper=WHISPER_REPO_ID)
 
         if needs_clean:
             raw_transcript = raw_path.read_text(encoding="utf-8")
@@ -454,6 +483,7 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
             atomic_write_text(clean_path, cleaned_output + "\n")
             if not _valid_text(clean_path):
                 raise RuntimeError("clean transcript validation failed")
+            _record_generation(session, ollama=config.ollama_model)
 
         if needs_summary:
             cleaned_transcript_text = clean_path.read_text(encoding="utf-8")
@@ -476,7 +506,7 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
                         f"Context after (reference only):\n{after}\n\n{prompt}"
                     )
                 generated = ollama.generate(
-                    config.ollama_model,
+                    summary_model,
                     prompt,
                     max_output_tokens=SUMMARY_MAX_OUTPUT_TOKENS,
                     system_prompt=SUMMARY_SYSTEM_PROMPT,
@@ -493,7 +523,9 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
                 atomic_write_text(session / "summary.raw.md", generated + "\n")
                 raise RuntimeError(f"summary validation failed: {reason}")
 
-        _write_session_state(session, "complete", config)
+            _record_generation(session, ollama_summary=summary_model)
+
+        _write_session_state(session, "complete", completed_now=True)
         atomic_write_text(session / "pipeline.log", "complete\n")
         (session / "error.log").unlink(missing_ok=True)
         clear_last_error(paths)
@@ -501,7 +533,7 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
             subprocess.run(["open", "-g", str(summary_path)], check=False)
         notify("Note ready", session.name)
     except Exception as error:
-        _write_failure(session, config, paths, error)
+        _write_failure(session, paths, error)
         raise
 
 

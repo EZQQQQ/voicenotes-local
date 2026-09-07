@@ -1,4 +1,7 @@
 from pathlib import Path
+from dataclasses import replace
+
+import pytest
 
 from voicenotes.config import AppConfig, Paths
 from voicenotes.doctor import run_doctor
@@ -30,7 +33,15 @@ def test_download_whisper_model_uses_pinned_repo_and_local_dir(tmp_path, monkeyp
     assert model_dir == tmp_path / "models" / "whisper-large-v3-mlx"
 
 
-def test_doctor_returns_success_when_checks_pass(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize(
+    "summary_model, missing_summary, expected_code, expected_models",
+    [
+        (None, False, 0, ["qwen2.5:14b"]),
+        ("summary-model", False, 0, ["qwen2.5:14b", "summary-model"]),
+        ("summary-model", True, 1, ["qwen2.5:14b", "summary-model"]),
+    ],
+)
+def test_doctor_checks_configured_models(tmp_path, monkeypatch, capsys, summary_model, missing_summary, expected_code, expected_models):
     p = paths(tmp_path)
     p.models.mkdir(parents=True)
     (p.models / "whisper-large-v3-mlx").mkdir()
@@ -44,12 +55,23 @@ def test_doctor_returns_success_when_checks_pass(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("platform.machine", lambda: "arm64")
     monkeypatch.setattr("shutil.which", lambda command: f"/opt/homebrew/bin/{command}")
     monkeypatch.setattr("voicenotes.doctor.importlib.import_module", lambda name: object())
-    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    checked = []
+
+    def ensure(model):
+        checked.append(model)
+        if model == "summary-model" and missing_summary:
+            raise RuntimeError("summary model missing")
+
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", ensure)
     monkeypatch.setattr("voicenotes.recorder.list_audio_devices", lambda: ["MacBook Pro Microphone"])
     monkeypatch.setattr("voicenotes.recorder.record_test", lambda config, paths, duration_seconds=2: tmp_path / "VoiceNotes" / "record-test")
 
-    assert run_doctor(config(tmp_path), p) == 0
-    assert "PASS Apple Silicon" in capsys.readouterr().out
+    assert run_doctor(replace(config(tmp_path), summary_model=summary_model), p) == expected_code
+    assert checked == expected_models
+    output = capsys.readouterr().out
+    assert "PASS Apple Silicon" in output
+    if missing_summary:
+        assert "FAIL Summary model: summary model missing" in output
 
 
 def test_doctor_reports_tcc_hint_when_record_test_fails(tmp_path, monkeypatch, capsys):

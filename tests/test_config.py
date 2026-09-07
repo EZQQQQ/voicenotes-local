@@ -61,3 +61,20 @@ def test_config_as_dict_is_hammerspoon_friendly(tmp_path):
         "ollama_model": "qwen2.5:14b",
         "auto_open": True,
     }
+
+
+def test_summary_model_override_survives_config_loading_and_export(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        'output_root = "~/VoiceNotes"\n'
+        'audio_device = "default"\n'
+        'ollama_model = "cleanup-model"\n'
+        'summary_model = "summary-model"\n'
+        'auto_open = false\n'
+        '[hotkey]\nmods = ["cmd"]\nkey = "`"\n'
+    )
+
+    exported = config_as_dict(load_config(path))
+
+    assert exported["ollama_model"] == "cleanup-model"
+    assert exported.get("summary_model") == "summary-model"
