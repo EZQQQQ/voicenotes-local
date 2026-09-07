@@ -13,6 +13,8 @@ def transcribe(audio: Path, model_dir: Path) -> list[dict[str, object]]:
         path_or_hf_repo=str(model_dir),
         task="transcribe",
         language=None,
+        # Do not carry hallucinated filler into subsequent audio windows.
+        condition_on_previous_text=False,
         initial_prompt="This recording mixes English and Mandarin Chinese, sometimes switching mid-sentence.",
     )
     return [
