@@ -333,11 +333,15 @@ def _clean_chunk(model: str, paragraphs: list[str], session: Path | None = None)
         _validate_cleaned_chunk(source, cleaned)
     except (_CleanupValidationError, ollama.IncompleteGenerationError, ollama.OutputLimitError) as error:
         if len(paragraphs) == 1:
-            raise
-        _progress(session, f"cleanup splitting chunk ({len(paragraphs)} paragraphs): {error}")
-        _checkpoint(session, key, {"split": True})
-        midpoint = len(paragraphs) // 2
-        cleaned = "\n\n".join(_clean_chunk(model, paragraphs[:midpoint], session) + _clean_chunk(model, paragraphs[midpoint:], session))
+            if not isinstance(error, _CleanupValidationError):
+                raise
+            cleaned = source
+            _progress(session, f"cleanup retained original paragraph {source[:21]}: {error}")
+        else:
+            _progress(session, f"cleanup splitting chunk ({len(paragraphs)} paragraphs): {error}")
+            _checkpoint(session, key, {"split": True})
+            midpoint = len(paragraphs) // 2
+            cleaned = "\n\n".join(_clean_chunk(model, paragraphs[:midpoint], session) + _clean_chunk(model, paragraphs[midpoint:], session))
         _validate_cleaned_chunk(source, cleaned)
     _checkpoint(session, key, cleaned)
     _progress(session, f"cleanup saved validated chunk ({len(paragraphs)} paragraphs)")

@@ -45,8 +45,7 @@ def test_clean_transcript_preserves_blank_paragraphs_and_validates_timestamp_ord
     assert calls == ["\n\n".join([first, last])]
 
     monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: first)
-    with pytest.raises(RuntimeError, match="timestamps missing or reordered"):
-        pipeline.clean_transcript("model", "\n\n".join([first, last]))
+    assert pipeline.clean_transcript("model", "\n\n".join([first, last])) == "\n\n".join([first, last])
 
 
 def test_clean_transcript_bisects_invalid_completed_group_but_propagates_generation_errors(monkeypatch):
@@ -67,14 +66,14 @@ def test_clean_transcript_bisects_invalid_completed_group_but_propagates_generat
         pipeline.clean_transcript("model", raw)
 
 
-def test_clean_transcript_rejects_empty_body_and_severe_contraction(monkeypatch):
+def test_clean_transcript_preserves_source_after_empty_body_or_severe_contraction(monkeypatch):
     monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: "[00:00:00 - 00:00:01] ")
-    with pytest.raises(RuntimeError, match="segment content missing"):
-        pipeline.clean_transcript("model", "[00:00:00 - 00:00:01] raw transcript")
+    source = "[00:00:00 - 00:00:01] raw transcript"
+    assert pipeline.clean_transcript("model", source) == source
 
     monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: "[00:00:00 - 00:00:01] We discussed sensors.")
-    with pytest.raises(RuntimeError, match="segment content shortened"):
-        pipeline.clean_transcript("model", "[00:00:00 - 00:00:01] We discussed sensors. The red sensor trips at 17 volts and the blue sensor resets after 23 seconds.")
+    source = "[00:00:00 - 00:00:01] We discussed sensors. The red sensor trips at 17 volts and the blue sensor resets after 23 seconds."
+    assert pipeline.clean_transcript("model", source) == source
 
 
 @pytest.mark.parametrize("source, replacement", [
@@ -85,7 +84,8 @@ def test_cleanup_rejects_introducing_a_language_absent_from_the_segment(monkeypa
     label = "[00:00:00 - 00:00:01] "
     monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: label + replacement)
     with pytest.raises(RuntimeError, match="segment language changed"):
-        pipeline.clean_transcript("model", label + source)
+        pipeline._validate_cleaned_chunk(label + source, label + replacement)
+    assert pipeline.clean_transcript("model", label + source) == label + source
 
 
 def test_cleanup_retries_language_changed_group_in_smaller_chunks(monkeypatch):
@@ -276,3 +276,18 @@ def test_cleanup_exhausted_single_paragraph_fails_without_checkpoint(tmp_path, m
     with pytest.raises(RuntimeError, match="interrupted"):
         pipeline.clean_transcript("model", "[00:00:00 - 00:00:01] first", session=tmp_path)
     assert not (tmp_path / ".generation-cache.json").exists()
+
+
+def test_single_paragraph_validation_fallback_is_logged_and_checkpointed(tmp_path, monkeypatch):
+    source = "[00:00:00 - 00:00:01] Keep the source language."
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: "[00:00:00 - 00:00:01] 保持原语言。")
+    assert pipeline.clean_transcript("model", source, session=tmp_path) == source
+    assert "retained original paragraph" in (tmp_path / "pipeline.log").read_text()
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: pytest.fail("reuse checkpoint"))
+    assert pipeline.clean_transcript("model", source, session=tmp_path) == source
+
+
+def test_single_paragraph_fallback_cannot_accept_malformed_raw_input(monkeypatch):
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: "invalid")
+    with pytest.raises(RuntimeError, match="timestamps missing or reordered"):
+        pipeline.clean_transcript("model", "malformed source without a timestamp")
