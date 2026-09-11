@@ -112,6 +112,7 @@ class FakeResponse:
 
 
 def test_generate_sets_num_predict_only_when_requested_and_rejects_bad_completion(monkeypatch):
+    monkeypatch.setattr("voicenotes.ollama.time.sleep", lambda seconds: None)
     captured = []
 
     def fake_urlopen(request, timeout):
@@ -135,3 +136,143 @@ def test_generate_sets_num_predict_only_when_requested_and_rejects_bad_completio
     monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: FakeResponse({"response": "partial", "done": True, "done_reason": "length"}))
     with pytest.raises(RuntimeError, match="token limit"):
         generate("model", "prompt")
+
+
+def test_generate_retries_incomplete_response_without_returning_partial_text(monkeypatch):
+    responses = iter([{"response": "partial", "done": False}, {"response": "complete", "done": True}])
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: FakeResponse(next(responses)))
+    monkeypatch.setattr("voicenotes.ollama.time.sleep", lambda seconds: None)
+    assert generate("model", "prompt") == "complete"
+
+
+def test_generate_incomplete_retries_are_bounded_and_diagnostic(monkeypatch):
+    calls = []
+
+    def incomplete(*args, **kwargs):
+        calls.append(1)
+        return FakeResponse({"response": "partial", "done": False})
+
+    monkeypatch.setattr("urllib.request.urlopen", incomplete)
+    monkeypatch.setattr("voicenotes.ollama.time.sleep", lambda seconds: None)
+    with pytest.raises(RuntimeError, match="did not complete.*done=False.*response_chars=7"):
+        generate("model", "prompt")
+    assert len(calls) == 3
+
+
+def test_generate_retries_transport_failure_but_not_missing_model(monkeypatch):
+    from urllib.error import HTTPError, URLError
+    responses = iter([URLError("connection lost"), {"response": "complete", "done": True}])
+
+    def response(*args, **kwargs):
+        item = next(responses)
+        if isinstance(item, Exception):
+            raise item
+        return FakeResponse(item)
+
+    monkeypatch.setattr("urllib.request.urlopen", response)
+    monkeypatch.setattr("voicenotes.ollama.time.sleep", lambda seconds: None)
+    assert generate("model", "prompt") == "complete"
+    calls = []
+
+    def missing(*args, **kwargs):
+        calls.append(1)
+        raise HTTPError("local", 404, "model missing", {}, None)
+
+    monkeypatch.setattr("urllib.request.urlopen", missing)
+    with pytest.raises(HTTPError):
+        generate("model", "prompt")
+    assert len(calls) == 1
+
+
+def test_cleanup_resumes_validated_recursive_chunks_after_incomplete_generation(tmp_path, monkeypatch):
+    first = "[00:00:00 - 00:00:01] first"
+    last = "[00:00:01 - 00:00:02] last"
+    raw = first + "\n\n" + last
+    calls = []
+
+    def interrupted(model, prompt, **kwargs):
+        source = prompt.rsplit("Transcript:\n", 1)[1].strip()
+        calls.append(source)
+        if source == raw:
+            raise pipeline.ollama.IncompleteGenerationError("interrupted")
+        if source == last:
+            raise RuntimeError("server unavailable")
+        return source
+
+    monkeypatch.setattr("voicenotes.ollama.generate", interrupted)
+    with pytest.raises(RuntimeError, match="server unavailable"):
+        pipeline.clean_transcript("model", raw, session=tmp_path)
+    assert calls == [raw, first, last]
+    assert not (tmp_path / "transcript_clean.md").exists()
+    calls.clear()
+
+    def resumed(model, prompt, **kwargs):
+        source = prompt.rsplit("Transcript:\n", 1)[1].strip()
+        calls.append(source)
+        return source
+
+    monkeypatch.setattr("voicenotes.ollama.generate", resumed)
+    assert pipeline.clean_transcript("model", raw, session=tmp_path) == raw
+    assert calls == [last]
+    assert "reused" in (tmp_path / "pipeline.log").read_text()
+
+
+@pytest.mark.parametrize("change", ["model", "prompt", "source", "corrupt"])
+def test_cleanup_checkpoint_never_reuses_stale_or_invalid_output(tmp_path, monkeypatch, change):
+    raw = "[00:00:00 - 00:00:01] first"
+    calls = []
+
+    def response(model, prompt, **kwargs):
+        calls.append(prompt)
+        return prompt.rsplit("Transcript:\n", 1)[1].strip()
+
+    monkeypatch.setattr("voicenotes.ollama.generate", response)
+    pipeline.clean_transcript("model", raw, session=tmp_path)
+    calls.clear()
+    model = "model"
+    if change == "model":
+        model = "different"
+    elif change == "prompt":
+        monkeypatch.setattr(pipeline, "CLEANUP_PROMPT", "Updated instructions.\n" + pipeline.CLEANUP_PROMPT)
+    elif change == "source":
+        raw = raw.replace("first", "second")
+    else:
+        cache = tmp_path / ".generation-cache.json"
+        data = json.loads(cache.read_text())
+        cache.write_text(json.dumps({key: "invalid shortened output" for key in data}))
+    assert pipeline.clean_transcript(model, raw, session=tmp_path) == raw
+    assert len(calls) == 1
+
+
+def test_cleanup_checkpoint_surrounding_whitespace_cannot_drop_a_paragraph(tmp_path, monkeypatch):
+    raw = "[00:00:00 - 00:00:01] first\n\n[00:00:01 - 00:00:02] last"
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: raw)
+    assert pipeline.clean_transcript("model", raw, session=tmp_path) == raw
+    cache = tmp_path / ".generation-cache.json"
+    data = json.loads(cache.read_text())
+    cache.write_text(json.dumps({key: "\n\n" + value + "\n\n" for key, value in data.items()}))
+    monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: pytest.fail("reuse validated cache"))
+    assert pipeline.clean_transcript("model", raw, session=tmp_path) == raw
+
+
+def test_cleanup_token_limit_splits_group_without_accepting_partial_output(monkeypatch):
+    raw = "[00:00:00 - 00:00:01] first\n\n[00:00:01 - 00:00:02] last"
+
+    def response(model, prompt, **kwargs):
+        source = prompt.rsplit("Transcript:\n", 1)[1].strip()
+        if source == raw:
+            raise pipeline.ollama.OutputLimitError("token limit")
+        return source
+
+    monkeypatch.setattr("voicenotes.ollama.generate", response)
+    assert pipeline.clean_transcript("model", raw) == raw
+
+
+def test_cleanup_exhausted_single_paragraph_fails_without_checkpoint(tmp_path, monkeypatch):
+    def response(*args, **kwargs):
+        raise pipeline.ollama.IncompleteGenerationError("interrupted")
+
+    monkeypatch.setattr("voicenotes.ollama.generate", response)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        pipeline.clean_transcript("model", "[00:00:00 - 00:00:01] first", session=tmp_path)
+    assert not (tmp_path / ".generation-cache.json").exists()

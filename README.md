@@ -95,13 +95,13 @@ voicenotes retry ~/VoiceNotes/2026-08-27_143012
 voicenotes record-test --duration 10
 ```
 
-`voicenotes retry <session>` resumes from the first missing or invalid artifact, checking cached cleanup against the raw transcript and reusing valid earlier results. To replace an existing cleanup and summary while retaining the raw transcript and audio:
+Incomplete or transient Ollama failures are retried up to three times. Validated cleanup and summary chunks are checkpointed locally, so `voicenotes retry <session>` resumes saved progress. Cleanup checkpoints are checked against their source; changed prompts or model names invalidate affected chunks. To regenerate cleanup and summary, discarding their checkpoints but retaining the raw transcript and audio:
 
 ```bash
 voicenotes retry ~/VoiceNotes/2026-08-27_143012 --from-clean
 ```
 
-If processing fails, check `error.log` and `pipeline.log` in the session folder, or use `voicenotes status --json` for the current status.
+If processing fails, check `error.log` and the chunk progress in `pipeline.log`, or use `voicenotes status --json`. Exhausted retries leave the session queued for a later retry; they do not run indefinitely.
 
 ## Output
 

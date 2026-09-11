@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
+from http.client import IncompleteRead, RemoteDisconnected
 import subprocess
 import time
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 import urllib.request
 
 
@@ -13,6 +15,14 @@ OLLAMA_CONTEXT_LENGTH = 8192
 OLLAMA_KEEP_ALIVE = "30s"
 OLLAMA_TIMEOUT_SECONDS = 1800
 OLLAMA_START_TIMEOUT_SECONDS = 60
+
+
+class IncompleteGenerationError(RuntimeError):
+    pass
+
+
+class OutputLimitError(RuntimeError):
+    pass
 
 
 def _read_tags() -> dict[str, object]:
@@ -62,12 +72,26 @@ def generate(model: str, prompt: str, timeout_seconds: int = OLLAMA_TIMEOUT_SECO
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-        body = json.loads(response.read().decode("utf-8"))
-    if body.get("done") is not True:
-        raise RuntimeError("Ollama generation did not complete")
+    for attempt in range(1, 4):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            if body.get("done") is not True:
+                raise IncompleteGenerationError(
+                    f"Ollama generation did not complete: model={model}, "
+                    f"done={body.get('done')!r}, done_reason={body.get('done_reason')!r}, "
+                    f"response_chars={len(body.get('response', ''))}"
+                )
+            break
+        except (IncompleteGenerationError, URLError, TimeoutError, ConnectionError, IncompleteRead, RemoteDisconnected) as error:
+            if isinstance(error, HTTPError) and error.code not in {408, 429, 500, 502, 503, 504}:
+                raise
+            logging.getLogger(__name__).warning("Ollama attempt %s/3 failed: %s", attempt, error)
+            if attempt == 3:
+                raise
+            time.sleep(attempt)
     if body.get("done_reason") == "length":
-        raise RuntimeError("Ollama generation stopped at its token limit")
+        raise OutputLimitError("Ollama generation stopped at its token limit")
     generated = str(body.get("response", ""))
     if not generated.strip():
         raise RuntimeError("Ollama returned a blank response")

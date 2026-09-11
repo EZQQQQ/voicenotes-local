@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -281,20 +282,69 @@ def _validate_cleaned_chunk(source: str, cleaned: str) -> None:
                 raise _CleanupValidationError("clean transcript validation failed: segment content shortened")
 
 
-def _clean_chunk(model: str, paragraphs: list[str]) -> list[str]:
-    source = "\n\n".join(paragraphs)
-    cleaned = ollama.generate(model, CLEANUP_PROMPT.format(transcript_raw=source), max_output_tokens=CLEANUP_MAX_OUTPUT_TOKENS).strip()
+def _progress(session: Path | None, message: str) -> None:
+    if session is not None:
+        path = session / "pipeline.log"
+        previous = path.read_text(encoding="utf-8") if path.exists() else ""
+        atomic_write_text(path, previous + f"{datetime.now().isoformat(timespec='seconds')} {message}\n")
+
+
+def _generation_key(model: str, prompt: str, output_tokens: int, system: str | None = None) -> str:
+    identity = [PROMPT_VERSION, model, prompt, system, output_tokens,
+                ollama.OLLAMA_CONTEXT_LENGTH, ollama.OLLAMA_TEMPERATURE]
+    return hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _generation_cache(session: Path | None) -> dict[str, object]:
+    if session is None:
+        return {}
     try:
+        data = read_json(session / ".generation-cache.json")
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _checkpoint(session: Path | None, key: str, value: object) -> None:
+    if session is not None:
+        cache = _generation_cache(session)
+        cache[key] = value
+        atomic_write_json(session / ".generation-cache.json", cache)
+
+
+def _clean_chunk(model: str, paragraphs: list[str], session: Path | None = None) -> list[str]:
+    source = "\n\n".join(paragraphs)
+    prompt = CLEANUP_PROMPT.format(transcript_raw=source)
+    key = _generation_key(model, prompt, CLEANUP_MAX_OUTPUT_TOKENS)
+    cached = _generation_cache(session).get(key)
+    if isinstance(cached, str):
+        cached = cached.strip()
+        try:
+            _validate_cleaned_chunk(source, cached)
+            _progress(session, f"cleanup reused validated chunk ({len(paragraphs)} paragraphs)")
+            return cached.split("\n\n")
+        except _CleanupValidationError:
+            pass
+    try:
+        if cached == {"split": True} and len(paragraphs) > 1:
+            raise _CleanupValidationError("resume split chunk")
+        _progress(session, f"cleanup generating chunk ({len(paragraphs)} paragraphs)")
+        cleaned = ollama.generate(model, prompt, max_output_tokens=CLEANUP_MAX_OUTPUT_TOKENS).strip()
         _validate_cleaned_chunk(source, cleaned)
-    except _CleanupValidationError:
+    except (_CleanupValidationError, ollama.IncompleteGenerationError, ollama.OutputLimitError) as error:
         if len(paragraphs) == 1:
             raise
+        _progress(session, f"cleanup splitting chunk ({len(paragraphs)} paragraphs): {error}")
+        _checkpoint(session, key, {"split": True})
         midpoint = len(paragraphs) // 2
-        return _clean_chunk(model, paragraphs[:midpoint]) + _clean_chunk(model, paragraphs[midpoint:])
+        cleaned = "\n\n".join(_clean_chunk(model, paragraphs[:midpoint], session) + _clean_chunk(model, paragraphs[midpoint:], session))
+        _validate_cleaned_chunk(source, cleaned)
+    _checkpoint(session, key, cleaned)
+    _progress(session, f"cleanup saved validated chunk ({len(paragraphs)} paragraphs)")
     return cleaned.split("\n\n")
 
 
-def clean_transcript(model: str, raw_text: str) -> str:
+def clean_transcript(model: str, raw_text: str, session: Path | None = None) -> str:
     if not raw_text.strip():
         raise RuntimeError("raw transcript validation failed")
     paragraphs = collapse_filler_runs(raw_text.strip().split("\n\n"))
@@ -307,7 +357,8 @@ def clean_transcript(model: str, raw_text: str) -> str:
         else:
             cleanup_paragraphs.append(paragraph)
     chunks = chunk_paragraphs(cleanup_paragraphs, CLEANUP_CHUNK_MAX_TOKENS)
-    cleaned_paragraphs = [paragraph for chunk in chunks for paragraph in _clean_chunk(model, chunk)]
+    _progress(session, f"cleanup started: {len(chunks)} chunks")
+    cleaned_paragraphs = [paragraph for chunk in chunks for paragraph in _clean_chunk(model, chunk, session)]
     cleaned_iter = iter(cleaned_paragraphs)
     return "\n\n".join(blank_paragraphs[index] if index in blank_paragraphs else next(cleaned_iter) for index in range(len(paragraphs)))
 
@@ -438,7 +489,7 @@ def _write_session_state(session: Path, status: str, error: str | None = None, *
 def _write_failure(session: Path, paths: Paths, error: Exception) -> None:
     message = str(error)
     atomic_write_text(session / "error.log", message + "\n")
-    atomic_write_text(session / "pipeline.log", f"failed: {message}\n")
+    _progress(session, f"failed: {message}")
     _write_session_state(session, "error", message)
     write_last_error(paths, message)
     notify("Note processing failed", session.name)
@@ -451,7 +502,8 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
             raise RuntimeError("audio validation failed")
         if all(status.values()):
             _write_session_state(session, "complete")
-            atomic_write_text(session / "pipeline.log", "complete: existing artifacts are valid\n")
+            _progress(session, "complete: existing artifacts are valid")
+            (session / "error.log").unlink(missing_ok=True)
             clear_last_error(paths)
             if config.auto_open:
                 subprocess.run(["open", "-g", str(session / "summary.md")], check=False)
@@ -484,7 +536,7 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
             raw_transcript = raw_path.read_text(encoding="utf-8")
             summary_path.unlink(missing_ok=True)
             (session / "summary.raw.md").unlink(missing_ok=True)
-            cleaned_output = clean_transcript(config.ollama_model, raw_transcript)
+            cleaned_output = clean_transcript(config.ollama_model, raw_transcript, session=session)
             atomic_write_text(clean_path, cleaned_output + "\n")
             if not _valid_text(clean_path):
                 raise RuntimeError("clean transcript validation failed")
@@ -510,16 +562,24 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
                         f"Context before (reference only):\n{before}\n\n"
                         f"Context after (reference only):\n{after}\n\n{prompt}"
                     )
-                generated = ollama.generate(
-                    summary_model,
-                    prompt,
-                    max_output_tokens=SUMMARY_MAX_OUTPUT_TOKENS,
-                    system_prompt=SUMMARY_SYSTEM_PROMPT,
-                )
+                key = _generation_key(summary_model, prompt, SUMMARY_MAX_OUTPUT_TOKENS, SUMMARY_SYSTEM_PROMPT)
+                generated = _generation_cache(session).get(key)
+                if isinstance(generated, str) and validate_summary_text(generated)[0]:
+                    _progress(session, f"summary reused validated chunk {index + 1}/{len(chunks)}")
+                else:
+                    _progress(session, f"summary generating chunk {index + 1}/{len(chunks)}")
+                    generated = ollama.generate(
+                        summary_model,
+                        prompt,
+                        max_output_tokens=SUMMARY_MAX_OUTPUT_TOKENS,
+                        system_prompt=SUMMARY_SYSTEM_PROMPT,
+                    )
                 summary_valid, reason = validate_summary_text(generated)
                 if not summary_valid:
                     atomic_write_text(session / "summary.raw.md", generated + "\n")
                     raise RuntimeError(f"summary validation failed: {reason}")
+                _checkpoint(session, key, generated)
+                _progress(session, f"summary saved validated chunk {index + 1}/{len(chunks)}")
                 summaries.append(generated)
             generated = _merge_summaries(summaries)
             atomic_write_text(summary_path, f"<!-- Generated by VoiceNotes from session {session.name} -->\n\n{generated.strip()}\n")
@@ -531,7 +591,7 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
             _record_generation(session, ollama_summary=summary_model)
 
         _write_session_state(session, "complete", completed_now=True)
-        atomic_write_text(session / "pipeline.log", "complete\n")
+        _progress(session, "complete")
         (session / "error.log").unlink(missing_ok=True)
         clear_last_error(paths)
         if config.auto_open:
@@ -544,6 +604,7 @@ def process_session(session: Path, config: AppConfig, paths: Paths) -> None:
 
 def retry_session(session: Path, config: AppConfig, paths: Paths, from_clean: bool = False) -> None:
     if from_clean:
+        (session / ".generation-cache.json").unlink(missing_ok=True)
         (session / "transcript_clean.md").unlink(missing_ok=True)
         (session / "summary.md").unlink(missing_ok=True)
         (session / "summary.raw.md").unlink(missing_ok=True)

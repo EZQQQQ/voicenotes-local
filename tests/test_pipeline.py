@@ -49,6 +49,43 @@ def summary_body(bullet: str) -> str:
     )
 
 
+def test_retry_resumes_summary_chunks_and_from_clean_discards_checkpoints(tmp_path, monkeypatch):
+    from voicenotes import pipeline
+    session = tmp_path / "session"
+    session.mkdir()
+    audio = b"RIFF" + b"0" * 10000
+    raw = "[00:00:00 - 00:00:01] first sentence\n\n[00:00:01 - 00:00:02] last sentence\n"
+    (session / "audio.wav").write_bytes(audio)
+    (session / "transcript_raw.md").write_text(raw)
+    monkeypatch.setattr(pipeline, "SUMMARY_CHUNK_MAX_TOKENS", 4)
+    monkeypatch.setattr("voicenotes.ollama.ensure_model_available", lambda model: None)
+    monkeypatch.setattr(pipeline, "notify", lambda *args: None)
+    monkeypatch.setattr(pipeline, "transcribe_audio", lambda *args: pytest.fail("must preserve raw"))
+    responses = iter([raw, summary_body("first sentence"), RuntimeError("interrupted")])
+
+    def response(*args, **kwargs):
+        result = next(responses)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr("voicenotes.ollama.generate", response)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        process_session(session, config(tmp_path), paths(tmp_path))
+    assert not (session / "summary.md").exists()
+    responses = iter([summary_body("last sentence")])
+    retry_session(session, config(tmp_path), paths(tmp_path))
+    summary = (session / "summary.md").read_text()
+    assert "first sentence" in summary and "last sentence" in summary
+    assert (session / "audio.wav").read_bytes() == audio
+    assert (session / "transcript_raw.md").read_text() == raw
+    assert "interrupted" in (session / "pipeline.log").read_text()
+    # Explicit regeneration must not silently return the old chunk cache.
+    responses = iter([raw.replace("first", "fresh"), summary_body("fresh sentence"), summary_body("last sentence")])
+    retry_session(session, config(tmp_path), paths(tmp_path), from_clean=True)
+    assert "fresh sentence" in (session / "transcript_clean.md").read_text()
+
+
 def test_format_timestamp_uses_hh_mm_ss():
     assert format_timestamp(3.2) == "00:00:03"
     assert format_timestamp(3661.9) == "01:01:01"
