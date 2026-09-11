@@ -291,3 +291,34 @@ def test_single_paragraph_fallback_cannot_accept_malformed_raw_input(monkeypatch
     monkeypatch.setattr("voicenotes.ollama.generate", lambda *args, **kwargs: "invalid")
     with pytest.raises(RuntimeError, match="timestamps missing or reordered"):
         pipeline.clean_transcript("model", "malformed source without a timestamp")
+
+
+def test_cleanup_preserves_long_repetition_without_sending_it_to_ollama(tmp_path, monkeypatch):
+    first = "[00:00:00 - 00:00:01] first"
+    repeated = "[00:00:01 - 00:00:31] " + "对" * 224
+    last = "[00:00:31 - 00:00:32] last"
+
+    def response(model, prompt, **kwargs):
+        source = prompt.rsplit("Transcript:\n", 1)[1].strip()
+        assert "对" * 32 not in source
+        return source
+
+    monkeypatch.setattr("voicenotes.ollama.generate", response)
+    raw = "\n\n".join([first, repeated, last])
+    assert pipeline.clean_transcript("model", raw, session=tmp_path) == raw
+    assert "retained repetition-only paragraph" in (tmp_path / "pipeline.log").read_text()
+    assert pipeline.clean_transcript("model", repeated, session=tmp_path) == repeated
+
+
+def test_cleanup_does_not_bypass_short_repetition_or_mixed_content(monkeypatch):
+    raw = "[00:00:00 - 00:00:01] 对对\n\n[00:00:01 - 00:00:31] " + "对" * 32 + "，但还有事情。"
+    sources = []
+
+    def response(model, prompt, **kwargs):
+        source = prompt.rsplit("Transcript:\n", 1)[1].strip()
+        sources.append(source)
+        return source
+
+    monkeypatch.setattr("voicenotes.ollama.generate", response)
+    assert pipeline.clean_transcript("model", raw) == raw
+    assert sources == [raw]

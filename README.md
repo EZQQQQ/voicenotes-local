@@ -24,7 +24,7 @@ flowchart LR
     class E summary
 ```
 
-Cleanup works in bounded, paragraph-preserving chunks and rejects responses with missing timestamps or heavily shortened segments. If a single paragraph still fails cleanup validation, its original wording is retained and logged. Repeated filler-only runs are reduced in cleanup input; the raw transcript stays unchanged. Processing runs after recording stops, and failed stages can be retried without starting over.
+Cleanup works in bounded, paragraph-preserving chunks and rejects responses with missing timestamps or heavily shortened segments. Single-paragraph validation failures and long repetition-only segments retain their original wording, with a log entry. Repeated filler-only runs are reduced in cleanup input; the raw transcript stays unchanged. Processing runs after recording stops, and failed stages can be retried without starting over.
 
 Summaries omit timestamp labels from model input, use bounded chunks with surrounding context, and combine their sections. Saved transcripts retain their timestamps.
 

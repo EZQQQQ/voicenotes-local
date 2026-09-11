@@ -352,19 +352,24 @@ def clean_transcript(model: str, raw_text: str, session: Path | None = None) -> 
     if not raw_text.strip():
         raise RuntimeError("raw transcript validation failed")
     paragraphs = collapse_filler_runs(raw_text.strip().split("\n\n"))
-    blank_paragraphs: dict[int, str] = {}
+    preserved_paragraphs: dict[int, str] = {}
     cleanup_paragraphs: list[str] = []
     for index, paragraph in enumerate(paragraphs):
         parsed = _parse_timestamped_paragraph(paragraph)
-        if parsed is not None and not parsed[2].strip():
-            blank_paragraphs[index] = paragraph
+        repeated = parsed is not None and re.fullmatch(r"([一-鿿])\1{31,}", parsed[2].strip()) is not None
+        if parsed is not None and (not parsed[2].strip() or repeated):
+            preserved_paragraphs[index] = paragraph
+            if repeated:
+                # Ollama aborts long identical-token runs, even when faithfully
+                # copying the source. Keep repetition-only speech verbatim.
+                _progress(session, f"cleanup retained repetition-only paragraph {paragraph[:21]}")
         else:
             cleanup_paragraphs.append(paragraph)
     chunks = chunk_paragraphs(cleanup_paragraphs, CLEANUP_CHUNK_MAX_TOKENS)
     _progress(session, f"cleanup started: {len(chunks)} chunks")
     cleaned_paragraphs = [paragraph for chunk in chunks for paragraph in _clean_chunk(model, chunk, session)]
     cleaned_iter = iter(cleaned_paragraphs)
-    return "\n\n".join(blank_paragraphs[index] if index in blank_paragraphs else next(cleaned_iter) for index in range(len(paragraphs)))
+    return "\n\n".join(preserved_paragraphs[index] if index in preserved_paragraphs else next(cleaned_iter) for index in range(len(paragraphs)))
 
 
 def _valid_text(path: Path) -> bool:
